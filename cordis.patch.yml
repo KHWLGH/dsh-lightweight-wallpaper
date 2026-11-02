@@ -1,0 +1,6 @@
+# dsh-lightweight-wallpaper bundle patch.
+# One host row; the Client half joins the browser graph automatically because
+# package.json declares dsh.client and exports "./client".
+- insert:
+    - id: lightweight-wallpaper
+      name: dsh-lightweight-wallpaper

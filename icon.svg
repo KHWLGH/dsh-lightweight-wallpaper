@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Lightweight Wallpaper">
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#247bbf"/>
+  <rect x="10" y="10" width="44" height="44" rx="9" fill="#ffffff" opacity="0.16"/>
+  <circle cx="42" cy="23" r="6" fill="#ffd166"/>
+  <path d="M14 46l10-14 7 9 6-7 13 12z" fill="#ffffff" opacity="0.92"/>
+  <path d="M14 46h36v4H14z" fill="#0b4f80" opacity="0.35"/>
+</svg>
