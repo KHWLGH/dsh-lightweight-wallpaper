@@ -32,6 +32,10 @@ window.__ModuleLoader__.load({
       dim: 18,
       blur: 0,
       opacity: 62,
+      panelEnabled: true,
+      panelAlpha: 55,
+      panelBlur: 24,
+      contrastEnabled: true,
       autoBing: false,
       autoBingDate: '',
       market: 'zh-CN',
@@ -39,7 +43,32 @@ window.__ModuleLoader__.load({
     }
 
     /** Same numbers as the Host default, exposed for the one-click reset. */
-    const EFFECT_DEFAULTS = { fit: 'cover', dim: 18, blur: 0, opacity: 62 }
+    const EFFECT_DEFAULTS = {
+      fit: 'cover',
+      dim: 18,
+      blur: 0,
+      opacity: 62,
+      panelEnabled: true,
+      panelAlpha: 55,
+      panelBlur: 24,
+      contrastEnabled: true,
+    }
+
+    function clampInt(value, min, max, fallback) {
+      const number = Number(value)
+      if (!Number.isFinite(number)) return fallback
+      return Math.min(Math.max(Math.round(number), min), max)
+    }
+
+    /** Merge a cached or host payload onto the defaults without losing new fields. */
+    function hydrateState(raw) {
+      const next = { ...DEFAULT_STATE, ...(raw && typeof raw === 'object' ? raw : {}) }
+      next.panelEnabled = next.panelEnabled !== false
+      next.panelAlpha = clampInt(next.panelAlpha, 0, 100, DEFAULT_STATE.panelAlpha)
+      next.panelBlur = clampInt(next.panelBlur, 0, 40, DEFAULT_STATE.panelBlur)
+      next.contrastEnabled = next.contrastEnabled !== false
+      return next
+    }
 
     const MARKETS = [
       ['zh-CN', '中文'],
@@ -83,11 +112,20 @@ window.__ModuleLoader__.load({
         'effect.fit.cover': '铺满',
         'effect.fit.contain': '适应',
         'effect.dim': '压暗',
-        'effect.blur': '模糊',
-        'effect.opacity': '面板不透明度',
-        'effect.hint': '面板越低越透出壁纸；卡片与弹窗始终保持实心以保证可读。',
+        'effect.blur': '壁纸模糊',
+        'effect.opacity': '整窗遮罩',
+        'effect.hint': '整窗遮罩铺满整个窗口，越低壁纸越明显；卡片、弹窗与代码块始终实心。',
         'effect.reset': '恢复推荐值',
         'effect.selfcheck': '自检',
+        'panel.title': '毛玻璃与透明',
+        'panel.desc': '只给输入框卡片和侧栏「新会话」按钮上毛玻璃；顶部、底部状态栏与两侧都不覆盖。',
+        'panel.enable': '启用毛玻璃',
+        'panel.alpha': '毛玻璃透明度',
+        'panel.blur': '毛玻璃模糊',
+        'panel.hint': '两者共用同一组浓度与模糊；透明度 0% 时完全透明。',
+        'panel.off': '毛玻璃已关闭：输入框与「新会话」按钮恢复实心。',
+        'contrast.title': '浅色模式增强文字对比',
+        'contrast.hint': '没有毛玻璃的地方（正文、侧栏、底部状态栏）把次要灰字加深一档，浅色主题下更清楚；深色主题不受影响。',
         'auto.title': '每日自动更换',
         'auto.desc': '开启后，每次打开 Harness 会取当天的必应每日图并缓存到本地。',
         'current.title': '当前壁纸',
@@ -139,11 +177,20 @@ window.__ModuleLoader__.load({
         'effect.fit.cover': 'Cover',
         'effect.fit.contain': 'Contain',
         'effect.dim': 'Dim',
-        'effect.blur': 'Blur',
-        'effect.opacity': 'Panel opacity',
-        'effect.hint': 'Lower panel opacity reveals more wallpaper; cards and dialogs stay solid for readability.',
+        'effect.blur': 'Wallpaper blur',
+        'effect.opacity': 'Window scrim',
+        'effect.hint': 'The window scrim covers the whole window; lower values reveal more wallpaper. Cards, dialogs and code stay solid.',
         'effect.reset': 'Reset to recommended',
         'effect.selfcheck': 'Self-check',
+        'panel.title': 'Glass & transparency',
+        'panel.desc': 'Only the composer card and the sidebar New session button get the glass; the header, the bottom status bar and both sides stay untouched.',
+        'panel.enable': 'Enable glass',
+        'panel.alpha': 'Glass opacity',
+        'panel.blur': 'Glass blur',
+        'panel.hint': 'Both share one opacity and one blur; 0% opacity makes them fully transparent.',
+        'panel.off': 'Glass is off: the composer and the New session button are solid again.',
+        'contrast.title': 'Boost text contrast in light mode',
+        'contrast.hint': 'Where there is no glass (transcript, sidebar, bottom status bar) the secondary greys step one shade darker so they read better in the light theme; the dark theme is untouched.',
         'auto.title': 'Rotate daily',
         'auto.desc': 'When on, each Harness launch pins that day’s Bing image and caches it locally.',
         'current.title': 'Current wallpaper',
@@ -185,7 +232,7 @@ window.__ModuleLoader__.load({
       /* Every official large surface repaints the same tokens; stacked alpha
          fills both hide the wallpaper and create lighter seams (white edges on
          the sidebar and the composer). Force them transparent and keep exactly
-         one scrim: html::after. */
+         one base scrim: html::after. */
       html[data-lww-active] [class*="_frame"],
       html[data-lww-active] [class*="_frame"]::before,
       html[data-lww-active] [class*="_sidebarCol"],
@@ -198,50 +245,164 @@ window.__ModuleLoader__.load({
       html[data-lww-active] [class*="_composerSeat"]{
         background-color:transparent!important;background-image:none!important;
         border-radius:0!important;border-left:none!important;border-right:none!important}
-      .lww-page{max-width:880px;margin:0 auto;padding:26px 4px 56px;color:var(--dsw-alias-label-primary);font-size:14px;line-height:1.6}
-      .lww-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:18px}
-      .lww-title{margin:0;font-size:20px;font-weight:600}
-      .lww-desc{margin:6px 0 0;font-size:13px;color:var(--dsw-alias-label-secondary);max-width:560px}
-      .lww-card{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;padding:16px;margin-bottom:16px;background:var(--dsw-alias-bg-layer-1)}
-      .lww-card-hd{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
-      .lww-card-title{font-size:14px;font-weight:600}
-      .lww-card-sub{font-size:12px;color:var(--dsw-alias-label-secondary)}
-      .lww-switch{position:relative;width:40px;height:22px;border-radius:11px;border:none;background:var(--dsw-alias-border-l2);cursor:pointer;flex:none;padding:0;transition:background .15s}
-      .lww-switch[aria-checked="true"]{background:var(--dsw-alias-brand-primary)}
-      .lww-switch>span{position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s}
-      .lww-switch[aria-checked="true"]>span{transform:translateX(18px)}
-      .lww-tabs{display:flex;gap:4px;border-bottom:1px solid var(--dsw-alias-border-l1);margin-bottom:14px}
-      .lww-tab{border:none;background:none;padding:7px 10px;font:inherit;font-size:13px;color:var(--dsw-alias-label-secondary);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
-      .lww-tab.is-active{color:var(--dsw-alias-label-primary);border-bottom-color:var(--dsw-alias-brand-primary)}
-      .lww-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(152px,1fr));gap:10px}
-      .lww-tile{position:relative;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;padding:0;overflow:hidden;background:var(--dsw-alias-bg-layer-2);cursor:pointer;text-align:left;color:inherit;font:inherit;aspect-ratio:16/10}
+
+      /* ==================================================================
+         Composer glass. ONE shared material (--lww-panel-a / --lww-panel-b)
+         on ONE surface: the input card itself. The dock around it, the
+         conversation header, the full-width bottom row and the sidebars are
+         deliberately left alone, so no tint reaches the left/right sides.
+         The card is tinted directly instead of through
+         --dsw-specific-input-major, so other cards keep their own surface.
+         Selectors match the official CSS-module class suffixes
+         (<hash>_localName); a build hash change keeps them working.
+         ================================================================== */
+      html[data-lww-glass] [class*="_composerSeat"] [class*="_card"],
+      html[data-lww-glass] [class*="_composerHero"] [class*="_card"]{
+        background-color:rgba(var(--lww-scrim-rgb,255,255,255),var(--lww-panel-a,0))!important;
+        -webkit-backdrop-filter:blur(var(--lww-panel-b,0px)) saturate(1.06);
+        backdrop-filter:blur(var(--lww-panel-b,0px)) saturate(1.06)}
+      /* New session button: the same adjustable material (it is NOT hard-wired
+         to transparent; 0% opacity makes it fully see-through). The :not()
+         list skips its own label/content/shortcut/mask children. */
+      html[data-lww-glass] [class*="_newSession"]:not([class*="Label"],[class*="Content"],[class*="Shortcut"],[class*="Mask"]){
+        background-color:rgba(var(--lww-scrim-rgb,255,255,255),var(--lww-panel-a,0))!important;
+        -webkit-backdrop-filter:blur(var(--lww-panel-b,0px)) saturate(1.06);
+        backdrop-filter:blur(var(--lww-panel-b,0px)) saturate(1.06)}
+
+      /* ==================================================================
+         Light-mode text contrast. Where there is no glass the official light
+         greys sit close to a veiled photo, so secondary/tertiary step one
+         shade darker — only while a wallpaper is active and the theme is
+         light. Primary, dark theme and the no-wallpaper state are untouched.
+         ================================================================== */
+      html[data-lww-active][data-lww-contrast] body:not([data-ds-dark-theme]){
+        --dsw-alias-label-secondary:var(--dsw-static-neutral-bluish-750);
+        --dsw-alias-label-tertiary:var(--dsw-static-neutral-bluish-700)}
+
+      /* ==================================================================
+         Popover / menu surfaces. The composer "+" menu, the model picker and
+         every other MenuSurface read --dsw-menu-surface-fill, which the theme
+         ships at 58% (light) / 45% (dark) alpha for an opaque page. Over a
+         wallpaper that thin veil leaves 13px menu text muddy, so while a
+         wallpaper is active the material turns near-opaque and the surface
+         gets a real backdrop blur. Without a wallpaper nothing changes.
+         ================================================================== */
+      html[data-lww-active] body:not([data-ds-dark-theme]){
+        --dsw-menu-surface-fill:#f8f9faf0;
+        --dsw-menu-backdrop-filter:blur(28px) saturate(1.4)}
+      html[data-lww-active] body[data-ds-dark-theme]{
+        --dsw-menu-surface-fill:#33343af0;
+        --dsw-menu-backdrop-filter:blur(28px) saturate(1.4)}
+      html[data-lww-active] [data-menu-material]{
+        -webkit-backdrop-filter:blur(28px) saturate(1.4);
+        backdrop-filter:blur(28px) saturate(1.4)}
+
+      /* ==================================================================
+         Settings page. The settings panel is 800px wide with a 188px nav and
+         24px of content padding, so the content column is ~564px: one column
+         of compact cards is the layout that fits without clipping.
+         ================================================================== */
+      .lww-page{width:100%;max-width:100%;box-sizing:border-box;padding:2px 0 32px;
+        color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.55}
+      .lww-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin:0 0 14px}
+      .lww-head-body{min-width:0}
+      .lww-title{margin:0;font-size:18px;font-weight:600;line-height:26px}
+      .lww-desc{margin:5px 0 0;font-size:12.5px;line-height:1.55;color:var(--dsw-alias-label-secondary);max-width:46ch}
+      .lww-enable{display:flex;align-items:center;gap:8px;flex:none;padding-top:3px}
+      .lww-card{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;
+        padding:14px 16px;margin-bottom:12px;background:var(--dsw-alias-bg-layer-1)}
+      body[data-ds-dark-theme] .lww-card{background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-1))}
+      .lww-card:last-child{margin-bottom:0}
+      .lww-card-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
+      .lww-card-head-main{min-width:0}
+      .lww-card-title{font-size:13.5px;font-weight:600;line-height:20px}
+      .lww-card-sub{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary)}
+      .lww-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+      .lww-switch{position:relative;width:38px;height:22px;border-radius:11px;border:none;flex:none;padding:0;
+        cursor:pointer;transition:background .15s;
+        background:color-mix(in srgb,var(--dsw-alias-label-primary) 22%,transparent)}
+      .lww-switch[aria-checked="true"]{background:var(--dsw-alias-button-primary-fill,var(--dsw-alias-brand-primary))}
+      .lww-switch>span{position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;
+        background:var(--dsw-alias-bg-layer-2);box-shadow:0 1px 2px rgba(0,0,0,.28);
+        transition:transform .15s}
+      .lww-switch[aria-checked="true"]>span{transform:translateX(16px)}
+      .lww-switch:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
+      .lww-tabs{display:inline-flex;gap:2px;padding:2px;border-radius:9px;margin-bottom:12px;
+        background:var(--dsw-alias-bg-layer-2)}
+      .lww-tab{border:none;background:none;padding:5px 12px;border-radius:7px;font:inherit;font-size:12.5px;
+        color:var(--dsw-alias-label-secondary);cursor:pointer;transition:color .12s,background .12s}
+      .lww-tab:hover{color:var(--dsw-alias-label-primary)}
+      .lww-tab.is-active{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);
+        box-shadow:0 1px 2px rgba(0,0,0,.1)}
+      .lww-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
+      .lww-tile{position:relative;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:0;
+        overflow:hidden;cursor:pointer;text-align:left;color:inherit;font:inherit;aspect-ratio:16/10;
+        background:var(--dsw-alias-bg-layer-2);transition:transform .12s,border-color .12s}
+      .lww-tile:hover:not(:disabled){transform:translateY(-1px)}
       .lww-tile:disabled{cursor:default;opacity:.7}
       .lww-tile img{width:100%;height:100%;object-fit:cover;display:block}
-      .lww-tile.is-active{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
-      .lww-tile-meta{position:absolute;inset:auto 0 0 0;padding:16px 8px 6px;background:linear-gradient(transparent,rgba(0,0,0,.74));color:#fff;font-size:11px;line-height:1.35;display:flex;flex-direction:column;gap:2px;pointer-events:none}
+      .lww-tile.is-active{border-color:transparent;outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
+      .lww-tile-meta{position:absolute;inset:auto 0 0 0;padding:16px 8px 6px;pointer-events:none;
+        background:linear-gradient(transparent,rgba(0,0,0,.76));color:#fff;font-size:11px;line-height:1.35;
+        display:flex;flex-direction:column;gap:2px}
       .lww-tile-title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .lww-tile-credit{opacity:.82;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .lww-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
-      .lww-chip{border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);border-radius:999px;padding:4px 11px;font:inherit;font-size:12px;cursor:pointer;color:var(--dsw-alias-label-secondary)}
-      .lww-chip.is-active{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary);background:color-mix(in srgb,var(--dsw-alias-brand-primary) 12%,transparent)}
-      .lww-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px solid var(--dsw-alias-border-l1)}
+      .lww-chip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);
+        border-radius:999px;padding:3px 11px;font:inherit;font-size:12px;cursor:pointer;
+        color:var(--dsw-alias-label-secondary);transition:color .12s,border-color .12s}
+      .lww-chip:hover{color:var(--dsw-alias-label-primary)}
+      .lww-chip.is-active{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary);
+        background:color-mix(in srgb,var(--dsw-alias-brand-primary) 12%,transparent)}
+      .lww-row{display:grid;grid-template-columns:minmax(88px,1fr) minmax(110px,1.7fr) 54px 20px;
+        align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--dsw-alias-border-l1)}
       .lww-row:last-child{border-bottom:none}
-      .lww-row-label{font-size:13px}
-      .lww-row-hint{font-size:11px;color:var(--dsw-alias-label-secondary);margin-top:2px}
-      .lww-range{flex:1;max-width:200px;accent-color:var(--dsw-alias-brand-primary)}
-      .lww-num{width:58px;height:26px;border-radius:6px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);color:inherit;font:inherit;font-size:12px;padding:0 6px}
-      .lww-select{height:28px;border-radius:6px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:inherit;font:inherit;font-size:12px;padding:0 6px}
-      .lww-btn{height:30px;padding:0 12px;border-radius:7px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:inherit;font:inherit;font-size:13px;cursor:pointer}
-      .lww-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover,var(--dsw-alias-bg-layer-2))}
-      .lww-btn:disabled{opacity:.55;cursor:default}
-      .lww-btn.is-primary{background:var(--dsw-alias-brand-primary);border-color:transparent;color:#fff}
-      .lww-actions{display:flex;align-items:center;gap:8px}
-      .lww-input{height:28px;flex:1;min-width:0;border-radius:6px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);color:inherit;font:inherit;font-size:12px;padding:0 8px}
-      .lww-note{font-size:12px;color:var(--dsw-alias-label-secondary)}
-      .lww-error{margin-top:10px;padding:8px 10px;border-radius:8px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 12%,transparent);color:var(--dsw-alias-state-error-primary);font-size:12px}
-      .lww-empty{padding:26px 0;text-align:center;color:var(--dsw-alias-label-secondary);font-size:13px}
+      .lww-row-split{display:flex;align-items:center;justify-content:space-between;gap:12px}
+      .lww-row-main{min-width:0}
+      .lww-row-label{font-size:12.5px}
+      .lww-row-hint{margin-top:1px;font-size:11px;color:var(--dsw-alias-label-secondary)}
+      .lww-unit{font-size:11px;color:var(--dsw-alias-label-secondary)}
+      .lww-range{-webkit-appearance:none;appearance:none;width:100%;min-width:0;height:16px;
+        background:transparent;cursor:pointer;padding:0;margin:0}
+      .lww-range::-webkit-slider-runnable-track{height:4px;border-radius:999px;
+        background:var(--dsw-alias-border-l2)}
+      .lww-range::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;
+        margin-top:-5px;border-radius:50%;background:var(--dsw-alias-label-primary);
+        border:2px solid var(--dsw-alias-bg-layer-1);box-shadow:0 1px 2px rgba(0,0,0,.28)}
+      .lww-range:focus-visible{outline:none}
+      .lww-range:focus-visible::-webkit-slider-thumb{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
+      .lww-range:disabled{opacity:.55;cursor:default}
+      .lww-num{width:54px;height:26px;box-sizing:border-box;border-radius:7px;
+        border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);
+        color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 4px;text-align:center}
+      .lww-select{height:28px;box-sizing:border-box;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);
+        background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);
+        font:inherit;font-size:12px;padding:0 8px}
+      .lww-input{height:28px;flex:1;min-width:0;box-sizing:border-box;border-radius:7px;
+        border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);
+        color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 9px}
+      .lww-input::placeholder{color:var(--dsw-alias-label-secondary)}
+      .lww-btn{height:28px;box-sizing:border-box;padding:0 11px;border-radius:8px;cursor:pointer;
+        border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);
+        color:var(--dsw-alias-label-primary);font:inherit;font-size:12.5px;
+        transition:background .12s,border-color .12s,color .12s}
+      .lww-btn:hover:not(:disabled){background:var(--dsw-alias-interactive-bg-hover)}
+      .lww-btn:disabled{opacity:.5;cursor:default}
+      .lww-btn.is-primary{background:var(--dsw-alias-button-primary-fill,var(--dsw-alias-brand-primary));
+        border-color:transparent;color:var(--dsw-alias-label-primary-foreground,#fff);font-weight:500}
+      .lww-btn.is-primary:hover:not(:disabled){background:var(--dsw-alias-button-primary-hover,var(--dsw-alias-brand-primary))}
+      .lww-btn:focus-visible,.lww-chip:focus-visible,.lww-tab:focus-visible,.lww-tile:focus-visible,
+      .lww-input:focus-visible,.lww-select:focus-visible,.lww-num:focus-visible{
+        outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
+      .lww-note{font-size:12px;line-height:1.55;color:var(--dsw-alias-label-secondary)}
+      .lww-error{margin-top:8px;padding:7px 10px;border-radius:8px;font-size:12px;
+        border:1px solid color-mix(in srgb,var(--dsw-alias-state-error-primary) 32%,transparent);
+        background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent);
+        color:var(--dsw-alias-state-error-primary)}
+      .lww-empty{padding:22px 0;text-align:center;color:var(--dsw-alias-label-secondary);font-size:12.5px}
       .lww-current{display:flex;align-items:center;gap:12px}
-      .lww-current-thumb{width:84px;height:52px;border-radius:8px;object-fit:cover;background:var(--dsw-alias-bg-layer-2);flex:none}
+      .lww-current-thumb{width:92px;height:58px;border-radius:9px;object-fit:cover;flex:none;
+        background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1)}
       .lww-current-body{min-width:0}
       .lww-current-title{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .lww-fade{opacity:.72}
@@ -251,7 +412,7 @@ window.__ModuleLoader__.load({
     /* Store                                                              */
     /* ------------------------------------------------------------------ */
 
-    let state = { ...DEFAULT_STATE }
+    let state = hydrateState(DEFAULT_STATE)
     let ready = false
     let errorText = ''
     let busy = ''
@@ -293,7 +454,7 @@ window.__ModuleLoader__.load({
         const raw = localStorage.getItem(PAINT_CACHE)
         if (!raw) return null
         const parsed = JSON.parse(raw)
-        return parsed && typeof parsed === 'object' ? { ...DEFAULT_STATE, ...parsed } : null
+        return parsed && typeof parsed === 'object' ? hydrateState(parsed) : null
       } catch {
         return null
       }
@@ -371,7 +532,7 @@ window.__ModuleLoader__.load({
       try {
         const data = await api('/state', { method: 'GET' })
         if (data && data.state) {
-          state = { ...DEFAULT_STATE, ...data.state }
+          state = hydrateState(data.state)
           paintCache()
         }
         if (errorText) setError('')
@@ -399,10 +560,30 @@ window.__ModuleLoader__.load({
         }
       }
 
+      function isDark() {
+        return document.body ? document.body.hasAttribute('data-ds-dark-theme') : false
+      }
+
+      function alphaValue(percent) {
+        const value = (Number(percent) || 0) / 100
+        return Math.min(1, Math.max(0, value)).toFixed(3)
+      }
+
       /** Theme-aware scrim so the single masked layer works in light and dark. */
       function floorColor(alpha) {
-        const dark = document.body ? document.body.hasAttribute('data-ds-dark-theme') : false
-        return dark ? `rgba(21,21,23,${alpha})` : `rgba(255,255,255,${alpha})`
+        return isDark() ? `rgba(21,21,23,${alpha})` : `rgba(255,255,255,${alpha})`
+      }
+
+      function scrimRgb() {
+        return isDark() ? '21,21,23' : '255,255,255'
+      }
+
+      function clearGlass() {
+        root.removeAttribute('data-lww-glass')
+        root.removeAttribute('data-lww-contrast')
+        root.style.removeProperty('--lww-panel-a')
+        root.style.removeProperty('--lww-panel-b')
+        root.style.removeProperty('--lww-scrim-rgb')
       }
 
       return function applyVisual(next) {
@@ -415,6 +596,7 @@ window.__ModuleLoader__.load({
             root.style.removeProperty('--lww-blur')
             root.style.removeProperty('--lww-dim')
             root.style.removeProperty('--lww-floor')
+            clearGlass()
             clearTokens()
             return
           }
@@ -423,10 +605,17 @@ window.__ModuleLoader__.load({
           root.style.setProperty('--lww-fit', next.fit === 'contain' ? 'contain' : 'cover')
           root.style.setProperty('--lww-blur', `${Number(next.blur) || 0}px`)
           root.style.setProperty('--lww-dim', String(((Number(next.dim) || 0) / 100).toFixed(3)))
-          root.style.setProperty(
-            '--lww-floor',
-            floorColor(((Number(next.opacity) || 0) / 100).toFixed(3)),
-          )
+          root.style.setProperty('--lww-floor', floorColor(alphaValue(next.opacity)))
+          if (next.contrastEnabled === false) root.removeAttribute('data-lww-contrast')
+          else root.setAttribute('data-lww-contrast', '')
+          if (next.panelEnabled === false) {
+            clearGlass()
+          } else {
+            root.setAttribute('data-lww-glass', '')
+            root.style.setProperty('--lww-scrim-rgb', scrimRgb())
+            root.style.setProperty('--lww-panel-a', alphaValue(next.panelAlpha))
+            root.style.setProperty('--lww-panel-b', `${clampInt(next.panelBlur, 0, 40, 0)}px`)
+          }
           if (!disposeTokenLayer) {
             disposeTokenLayer = theme.overrideTokens(PLUGIN_ID, {
               '--dsw-alias-bg-base': { light: 'rgba(0,0,0,0)', dark: 'rgba(0,0,0,0)' },
@@ -636,13 +825,13 @@ window.__ModuleLoader__.load({
     }
 
     function Slider(props) {
-      const { label, hint, value, min, max, step, unit, onChange } = props
+      const { label, hint, value, min, max, step, unit, disabled, onChange } = props
       return h(
         'div',
         { className: 'lww-row' },
         h(
           'div',
-          null,
+          { className: 'lww-row-main' },
           h('div', { className: 'lww-row-label' }, label),
           hint ? h('div', { className: 'lww-row-hint' }, hint) : null,
         ),
@@ -653,6 +842,7 @@ window.__ModuleLoader__.load({
           max,
           step,
           value,
+          disabled,
           'aria-label': label,
           onChange: (event) => onChange(Number(event.target.value)),
         }),
@@ -663,13 +853,14 @@ window.__ModuleLoader__.load({
           max,
           step,
           value,
+          disabled,
           'aria-label': label,
           onChange: (event) => {
             const next = Number(event.target.value)
             if (Number.isFinite(next)) onChange(Math.min(max, Math.max(min, next)))
           },
         }),
-        h('span', { className: 'lww-card-sub' }, unit),
+        h('span', { className: 'lww-unit' }, unit),
       )
     }
 
@@ -691,6 +882,7 @@ window.__ModuleLoader__.load({
         id: element.id || '',
         bg: style.backgroundColor,
         bgImage: String(style.backgroundImage || '').slice(0, 140),
+        backdropFilter: String(style.backdropFilter || '').slice(0, 80),
         opacity: style.opacity,
         position: style.position,
         zIndex: style.zIndex,
@@ -711,6 +903,93 @@ window.__ModuleLoader__.load({
         filter: style.filter,
         display: style.display,
       }
+    }
+
+    /** Glass surfaces, kept in one place: a miss shows up as matched:false. */
+    const GLASS_PROBES = [
+      [
+        'newSession',
+        '[class*="_newSession"]:not([class*="Label"],[class*="Content"],[class*="Shortcut"],[class*="Mask"])',
+      ],
+    ]
+
+    function probeGlass(selector) {
+      let element = null
+      try {
+        element = document.querySelector(selector)
+      } catch {
+        element = null
+      }
+      if (!element) return { selector, matched: false }
+      const style = getComputedStyle(element)
+      return {
+        selector,
+        matched: true,
+        element: describeElement(element),
+        inputsMajor: style.getPropertyValue('--dsw-specific-input-major').trim(),
+      }
+    }
+
+    function probeComposerCard() {
+      const host =
+        document.querySelector('[class*="_composerHero"]') || document.querySelector('[class*="_composerSeat"]')
+      if (!host) return null
+      const card = host.querySelector('[class*="_card"]')
+      if (!card) return { found: false, host: describeElement(host) }
+      const style = getComputedStyle(card)
+      return {
+        found: true,
+        card: describeElement(card),
+        backdropFilter: String(style.backdropFilter || ''),
+      }
+    }
+
+    /** Open popovers (composer "+" menu, model picker, …) and their material. */
+    function probeMenus() {
+      const nodes = document.querySelectorAll('[data-menu-material]')
+      const found = []
+      for (const element of nodes) {
+        const style = getComputedStyle(element)
+        const rect = element.getBoundingClientRect()
+        const material = element.firstElementChild
+        found.push({
+          cls: String(element.className || '').slice(0, 90),
+          w: Math.round(rect.width),
+          h: Math.round(rect.height),
+          surfaceBg: style.backgroundColor,
+          materialBg: material ? getComputedStyle(material).backgroundColor : '',
+          backdropFilter: String(style.backdropFilter || ''),
+        })
+        if (found.length >= 4) break
+      }
+      return found
+    }
+
+    /**
+     * Any element that still paints an opaque-ish background over the wallpaper
+     * is a bug; listing them makes "where is that white block" answerable.
+     */
+    function probeOpaqueSurfaces() {      const found = []
+      const nodes = document.querySelectorAll('body *')
+      for (const element of nodes) {
+        const rect = element.getBoundingClientRect()
+        const area = rect.width * rect.height
+        if (area < 20000) continue
+        const style = getComputedStyle(element)
+        const bg = style.backgroundColor
+        const match = /^rgba?\(([^)]+)\)$/.exec(bg)
+        if (!match) continue
+        const parts = match[1].split(',').map((value) => Number(value.trim()))
+        const alpha = parts.length > 3 ? parts[3] : 1
+        if (!(alpha > 0.02)) continue
+        found.push({
+          cls: String(element.className || '').slice(0, 90),
+          bg,
+          area: Math.round(area),
+        })
+        if (found.length >= 12) break
+      }
+      return found
     }
 
     function collectSelfCheck() {
@@ -745,17 +1024,36 @@ window.__ModuleLoader__.load({
           opacity: state.opacity,
           blur: state.blur,
           dim: state.dim,
+          panelEnabled: state.panelEnabled !== false,
+          panelAlpha: state.panelAlpha,
+          panelBlur: state.panelBlur,
+          contrastEnabled: state.contrastEnabled !== false,
           asset: state.wallpaper && state.wallpaper.asset,
           source: state.wallpaper && state.wallpaper.source,
         },
         attributes: {
           lwwActive: root.hasAttribute('data-lww-active'),
+          lwwGlass: root.hasAttribute('data-lww-glass'),
+          lwwContrast: root.hasAttribute('data-lww-contrast'),
           windowsTitlebar: root.hasAttribute('data-windows-titlebar'),
           platform: root.getAttribute('data-platform'),
           dark: document.body ? document.body.hasAttribute('data-ds-dark-theme') : null,
         },
         styleTag: Boolean(document.getElementById('dsh-lightweight-wallpaper-styles')),
         tokens,
+        glassVariables: {
+          scrimRgb: root.style.getPropertyValue('--lww-scrim-rgb').trim(),
+          panelAlpha: root.style.getPropertyValue('--lww-panel-a').trim(),
+          panelBlur: root.style.getPropertyValue('--lww-panel-b').trim(),
+          floor: root.style.getPropertyValue('--lww-floor').trim(),
+          labelSecondary: bodyStyle ? bodyStyle.getPropertyValue('--dsw-alias-label-secondary').trim() : '',
+          labelTertiary: bodyStyle ? bodyStyle.getPropertyValue('--dsw-alias-label-tertiary').trim() : '',
+          menuSurfaceFill: bodyStyle ? bodyStyle.getPropertyValue('--dsw-menu-surface-fill').trim() : '',
+        },
+        glass: Object.fromEntries(GLASS_PROBES.map(([id, selector]) => [id, probeGlass(selector)])),
+        composerCard: probeComposerCard(),
+        menus: probeMenus(),
+        opaqueSurfaces: probeOpaqueSurfaces(),
         pseudo: { before: describePseudo(root, '::before'), after: describePseudo(root, '::after') },
         elements: {
           html: describeElement(root),
@@ -1097,13 +1395,13 @@ window.__ModuleLoader__.load({
           { className: 'lww-head' },
           h(
             'div',
-            null,
+            { className: 'lww-head-body' },
             h('h1', { className: 'lww-title' }, translate('page.title')),
             h('p', { className: 'lww-desc' }, translate('page.desc')),
           ),
           h(
             'div',
-            { className: 'lww-actions' },
+            { className: 'lww-enable' },
             h('span', { className: 'lww-card-sub' }, translate('enable')),
             h(Switch, {
               checked: current.enabled,
@@ -1181,7 +1479,7 @@ window.__ModuleLoader__.load({
           ),
           h(
             'div',
-            { className: 'lww-row' },
+            { className: 'lww-row lww-row-split' },
             h('div', { className: 'lww-row-label' }, translate('effect.fit')),
             h(
               'div',
@@ -1233,6 +1531,21 @@ window.__ModuleLoader__.load({
             unit: '%',
             onChange: (next) => setState({ opacity: next }),
           }),
+          h(
+            'div',
+            { className: 'lww-row lww-row-split' },
+            h(
+              'div',
+              { className: 'lww-row-main' },
+              h('div', { className: 'lww-row-label' }, translate('contrast.title')),
+              h('div', { className: 'lww-row-hint' }, translate('contrast.hint')),
+            ),
+            h(Switch, {
+              checked: current.contrastEnabled !== false,
+              label: translate('contrast.title'),
+              onChange: (next) => setState({ contrastEnabled: next }),
+            }),
+          ),
           h('div', { className: 'lww-note', style: { marginTop: 10 } }, translate('effect.hint')),
         ),
 
@@ -1244,7 +1557,57 @@ window.__ModuleLoader__.load({
             { className: 'lww-card-hd' },
             h(
               'div',
-              null,
+              { className: 'lww-card-head-main' },
+              h('div', { className: 'lww-card-title' }, translate('panel.title')),
+              h('div', { className: 'lww-card-sub' }, translate('panel.desc')),
+            ),
+            h(
+              'div',
+              { className: 'lww-actions' },
+              h('span', { className: 'lww-card-sub' }, translate('panel.enable')),
+              h(Switch, {
+                checked: current.panelEnabled !== false,
+                label: translate('panel.enable'),
+                onChange: (next) => setState({ panelEnabled: next }),
+              }),
+            ),
+          ),
+          current.panelEnabled !== false
+            ? h(
+                'div',
+                null,
+                h(Slider, {
+                  label: translate('panel.alpha'),
+                  value: current.panelAlpha,
+                  min: 0,
+                  max: 100,
+                  step: 1,
+                  unit: '%',
+                  onChange: (next) => setState({ panelAlpha: next }),
+                }),
+                h(Slider, {
+                  label: translate('panel.blur'),
+                  value: current.panelBlur,
+                  min: 0,
+                  max: 40,
+                  step: 1,
+                  unit: 'px',
+                  onChange: (next) => setState({ panelBlur: next }),
+                }),
+                h('div', { className: 'lww-note', style: { marginTop: 9 } }, translate('panel.hint')),
+              )
+            : h('div', { className: 'lww-note' }, translate('panel.off')),
+        ),
+
+        h(
+          'div',
+          { className: 'lww-card' },
+          h(
+            'div',
+            { className: 'lww-card-hd' },
+            h(
+              'div',
+              { className: 'lww-card-head-main' },
               h('div', { className: 'lww-card-title' }, translate('auto.title')),
               h('div', { className: 'lww-card-sub' }, translate('auto.desc')),
             ),
@@ -1304,7 +1667,7 @@ window.__ModuleLoader__.load({
 
       const cached = readPaintCache()
       if (cached) {
-        state = { ...DEFAULT_STATE, ...cached }
+        state = hydrateState(cached)
         visual(state)
       }
 

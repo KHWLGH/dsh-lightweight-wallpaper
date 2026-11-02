@@ -253,6 +253,43 @@ await step('POST /upload accepts PNG magic bytes', async () => {
   assert.match(res.json().asset, /\.png$/)
 })
 
+await step('defaults ship the glass panel values', async () => {
+  const res = await call('GET', `${P}/state`)
+  assert.equal(res.statusCode, 200)
+  const state = res.json().state
+  assert.equal(state.panelEnabled, true)
+  assert.equal(state.panelAlpha, 55)
+  assert.equal(state.panelBlur, 24)
+  assert.equal(state.contrastEnabled, true)
+  // The clamp test above persisted opacity=100, so the default is checked purely.
+  assert.equal(normalizeState({}).opacity, 62)
+})
+
+await step('POST /state clamps glass panel values', async () => {
+  const res = await call('POST', `${P}/state`, {
+    headers: HEADERS,
+    body: JSON.stringify({
+      state: { panelAlpha: 999, panelBlur: -5, panelEnabled: false, contrastEnabled: false },
+    }),
+  })
+  assert.equal(res.statusCode, 200)
+  const saved = res.json().state
+  assert.equal(saved.panelAlpha, 100)
+  assert.equal(saved.panelBlur, 0)
+  assert.equal(saved.panelEnabled, false)
+  assert.equal(saved.contrastEnabled, false)
+})
+
+await step('legacy state without glass fields hydrates defaults', async () => {
+  const state = normalizeState({ opacity: 70, dim: 20 })
+  assert.equal(state.panelEnabled, true)
+  assert.equal(state.panelAlpha, 55)
+  assert.equal(state.panelBlur, 24)
+  assert.equal(state.contrastEnabled, true)
+  assert.equal(state.opacity, 70)
+  assert.equal(state.dim, 20)
+})
+
 await rm(home, { recursive: true, force: true })
 
 console.log('\n' + '='.repeat(64))

@@ -6,23 +6,32 @@
 
 - **四种来源**：必应每日（最近 8 天，可选地区）、维基共享（公共领域名画，可搜索/预设）、克利夫兰艺术博物馆（CC0）、本地上传。
 - **整窗壁纸**：壁纸铺在最底层，画布与侧栏透出；卡片、弹窗保持实心，文字可读。
-- **四个参数**：填充方式（铺满/适应）、压暗、模糊、面板不透明度。
+- **毛玻璃**：只给**输入框卡片**和侧栏「新会话」按钮上毛玻璃，两者共用一组浓度/模糊；顶部、底部状态栏与两侧都不覆盖。
+- **四个全局参数**：填充方式（铺满/适应）、整窗遮罩、压暗、壁纸模糊。
+- **浅色对比度开关**：无毛玻璃处的次要灰字（正文、侧栏、底部状态栏）一键加深一档，深色主题不受影响。
+- **弹层可读性**：壁纸开启时，输入框「+」菜单、模型选择等 `MenuSurface` 弹层的材质由官方的 58%/45% 半透明改为接近实心（94%）并加 28px 背景模糊，小字不再糊在壁纸上。
 - **每日自动更换**：开启后每次启动取当天的必应每日图并缓存到本地。
 - **本地缓存**：应用过的图片下载到 `$DSH_HOME/lightweight-wallpaper/assets/`，断网也能显示。
 - **设置持久化在宿主**：端口变化、换浏览器都不会丢。
 
 ## 默认参数
 
-参考同类壁纸插件的常见默认值（面板透出、卡片实心）：
+参考同类壁纸插件的常见默认值（壁纸透出、卡片实心）：
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
 | 填充方式 | 铺满 | 也可选「适应」 |
-| 面板不透明度 | 62% | 全窗唯一遮罩的浓度，越低壁纸越明显 |
+| 整窗遮罩 | 62% | 全窗基础遮罩，越低壁纸越明显（30–100%） |
 | 压暗 | 18% | 在壁纸上叠一层暗色，保证正文对比度 |
-| 模糊 | 0 | 0–24px |
+| 壁纸模糊 | 0 | 0–24px |
+| 毛玻璃 | 开 | 输入框卡片 + 「新会话」按钮 |
+| 毛玻璃透明度 | 55% | 0–100%，两处共用；0% 即完全透明 |
+| 毛玻璃模糊 | 24px | 0–40px，两处共用 |
+| 浅色增强文字对比 | 开 | 只加深 `label-secondary` / `label-tertiary` 一档 |
 
-实现上只有**一层遮罩**：官方容器的 `--dsw-alias-bg-base` / `--dsw-specific-sidebar-fill` 全部置为透明，壁纸与遮罩都由插件自己画。这样侧栏、对话区和底部不会再有「多层同色叠加」造成的亮边。效果区右上角有「恢复推荐值」按钮，一键回到上表。卡片、弹窗与代码块始终保持实心。
+实现上只有**一层基础遮罩**：官方容器的 `--dsw-alias-bg-base` / `--dsw-specific-sidebar-fill` 全部置为透明，壁纸与遮罩都由插件自己画。毛玻璃直接画在 `[class*="_composerSeat"] [class*="_card"]` 与 `[class*="_newSession"]` 上，不改 `--dsw-specific-input-major` 之类的全局 token，所以其他卡片不受影响；滑杆值不做任何隐藏加成，所见即所得。效果区右上角有「恢复推荐值」，一键回到上表。
+
+浅色对比：壁纸开启且主题为浅色时，`--dsw-alias-label-secondary` 由 `neutral-bluish-700` 加深到 `750`、`--dsw-alias-label-tertiary` 由 `600` 加深到 `700`（都用官方静态色阶变量），可用开关关闭；深色主题与关闭壁纸时完全不生效。
 
 ## 来源与许可
 
@@ -50,8 +59,9 @@ dsh plugin --profile desktop add "<本目录绝对路径>"
 
 1. 顶部开关启用/关闭；关闭后所有 token 与样式立即还原。
 2. 选来源页签，点缩略图即下载并应用。
-3. 下方滑杆实时生效；参数会自动保存。
-4. 打开「每日自动更换」后，每天首次启动自动换成当天必应图。
+3. 「显示效果」调整整窗遮罩、压暗、壁纸模糊，并可开关「浅色模式增强文字对比」；参数自动保存。
+4. 「毛玻璃与透明」调整输入框卡片与「新会话」按钮的浓度/模糊；总开关关闭即恢复实心。
+5. 打开「每日自动更换」后，每天首次启动自动换成当天必应图。
 
 ## 数据位置
 
@@ -67,9 +77,14 @@ $DSH_HOME/lightweight-wallpaper/
 
 ## 自检
 
-设置 → 壁纸 → 效果区右上角 **「自检」**：把当前壁纸层、遮罩层、官方容器（frame / 侧栏 / 内容列）的计算样式与鼠标位置的元素堆栈写到 `selfcheck.json`。页面每次启动也会自动写一次。
+设置 → 壁纸 → 显示效果右上角 **「自检」**：把当前壁纸层、遮罩层、官方容器（frame / 侧栏 / 内容列 / 输入区 / 新会话按钮）的计算样式、毛玻璃与对比度开关状态、不透明面清单与鼠标位置的元素堆栈写到 `selfcheck.json`。页面每次启动也会自动写一次。
 
-排查“壁纸看不到 / 有白边”时先看它：正常情况下 `--dsw-alias-bg-base` 与 `--dsw-specific-sidebar-fill` 为 `rgba(0,0,0,0)`，`html::after` 是唯一带颜色的遮罩，`html::before` 的 `background-image` 指向本地 asset。
+排查「壁纸看不到 / 有白边 / 毛玻璃没生效」时先看它：
+- 正常时 `--dsw-alias-bg-base` 与 `--dsw-specific-sidebar-fill` 为 `rgba(0,0,0,0)`，`html::after` 是唯一的基础遮罩，`html::before` 的 `background-image` 指向本地 asset；
+- `composerCard.card.bg` 应带 alpha、`composerCard.backdropFilter` 含 `blur(24px)`；`glass.newSession.element.bg` 应带 alpha；
+- `glassVariables.labelSecondary / labelTertiary` 在浅色 + 对比开关打开时应为 `#43454a` / `#61666b`；
+- `glassVariables.menuSurfaceFill` 在壁纸开启时应为 `#f8f9faf0`（浅）/ `#33343af0`（深）；`menus` 列出当前打开的弹层及其材质背景与 `backdrop-filter`；
+- `opaqueSurfaces` 列出所有面积较大且背景不透明的元素，出现意外条目就是“白块”的源头。
 
 ## 连通性实测（本机，国内网络）
 
@@ -86,14 +101,18 @@ $DSH_HOME/lightweight-wallpaper/
 
 ```bash
 node --check src/index.js && node --check src/client.js
-node tools/host-smoke.mjs       # 假 ctx + stub fetch，14 项
-node tools/client-contract.mjs  # __ModuleLoader__ 包壳与注册契约
+node tools/host-smoke.mjs       # 假 ctx + stub fetch，17 项（含毛玻璃参数夹取/兼容）
+node tools/client-contract.mjs  # __ModuleLoader__ 包壳、注册契约、毛玻璃变量与样式表
 node tools/probe-sources.mjs    # 真实上游连通性 + 适配器形状
 ```
 
 ## 已知限制
 
 - Windows 原生标题栏（约 40px）由 Electron 外壳绘制，页面 CSS 覆盖不到，会保持实色。
+- 毛玻璃依赖官方 CSS-module 的类名后缀（`_composerSeat`、`_newSession` 等）；DSH 大版本改类名后按自检报告更新选择器。
+- 设置面板固定 800px 宽（内容列约 564px），因此插件设置页是单列布局。
+- 若某个环境禁用了 `backdrop-filter`，毛玻璃只剩浓度遮罩、没有背景模糊，可读性不受影响。
+- 浅色对比增强会同时加深弹窗/卡片里的次要灰字（官方 token 是全局的）；不想要时关掉开关即可。
 - 少量写死颜色的官方控件不会透出壁纸；设置弹窗本身保持实心（刻意）。
 - 必应图片仅限个人壁纸用途，UI 不提供导出。
 - 只支持 JPEG / PNG / WebP；超过 6MB 的图片会先在浏览器里压到最长边 2560 再上传。
@@ -102,9 +121,9 @@ node tools/probe-sources.mjs    # 真实上游连通性 + 适配器形状
 ## 结构
 
 ```
-src/index.js     Host：同源路由、上游缓存、图片代理、state 落盘
+src/index.js     Host：同源路由、上游缓存、图片代理、state 落盘（含毛玻璃默认值）
 src/sources.js   纯函数：三个源的 URL 构造 + 响应归一化
-src/client.js    Client：壁纸层 + 单层遮罩、设置页、自检
+src/client.js    Client：壁纸层 + 整窗遮罩 + 毛玻璃、设置页、自检
 tools/           冒烟测试、契约检查与连通性探针（不随包发布）
 ```
 
