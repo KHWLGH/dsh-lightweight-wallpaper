@@ -191,7 +191,7 @@ window.__ModuleLoader__.load({
         'source.title': '选择壁纸',
         'source.bing': '必应每日',
         'source.art': '艺术馆藏',
-        'source.custom': '本地上传',
+        'source.custom': '上传',
         'bing.market': '地区',
         'bing.refresh': '刷新',
         'bing.note': '必应每日图提供最近 16 天，每页 8 张，最多 2 页；图片仅限个人壁纸用途。',
@@ -232,6 +232,7 @@ window.__ModuleLoader__.load({
         'source.name.wikimedia': '维基共享',
         'source.name.cleveland': '克利夫兰',
         'source.name.upload': '本地上传',
+        'source.name.local': '本地',
         'loading': '加载中…',
         'retry': '重试',
         'empty': '这一页暂时没有可用的图片。',
@@ -254,13 +255,13 @@ window.__ModuleLoader__.load({
         'error.upload': '上传失败',
         'busy.pin': '正在下载并缓存…',
         'busy.upload': '正在处理图片…',
-        'history.title': '最近使用',
-        'history.hint': '按使用时间倒序，点一下就直接切回；当前这张会高亮。',
-        'history.empty': '还没有使用记录。',
+        'history.title': '本地壁纸',
+        'history.hint': '已下载和上传的壁纸都在本地（最多 20 张），按最近使用排序；点一下直接切回，当前这张会高亮。',
+        'history.empty': '本地还没有壁纸。',
         'history.current': '当前',
         'cache.title': '缓存',
-        'cache.hint': '壁纸、缩略图和列表快照都存在本地；清理不会删除当前壁纸。',
-        'cache.assets': '壁纸缓存',
+        'cache.hint': '本地壁纸、缩略图和列表快照都存在磁盘上；清理不会删除当前壁纸。',
+        'cache.assets': '本地壁纸',
         'cache.thumbs': '缩略图缓存',
         'cache.lists': '列表缓存',
         'cache.clear': '清理',
@@ -322,6 +323,7 @@ window.__ModuleLoader__.load({
         'source.name.wikimedia': 'Wikimedia Commons',
         'source.name.cleveland': 'Cleveland Museum',
         'source.name.upload': 'Upload',
+        'source.name.local': 'Local',
         'loading': 'Loading…',
         'retry': 'Retry',
         'empty': 'No images are available on this page right now.',
@@ -344,13 +346,13 @@ window.__ModuleLoader__.load({
         'error.upload': 'Upload failed',
         'busy.pin': 'Downloading and caching…',
         'busy.upload': 'Processing image…',
-        'history.title': 'Recently used',
-        'history.hint': 'Newest first — click a tile to switch straight back. The current one is highlighted.',
-        'history.empty': 'Nothing has been used yet.',
+        'history.title': 'Local wallpapers',
+        'history.hint': 'Downloaded and uploaded wallpapers live on this machine (up to 20), newest first — click a tile to switch straight back. The current one is highlighted.',
+        'history.empty': 'No local wallpapers yet.',
         'history.current': 'Current',
         'cache.title': 'Cache',
-        'cache.hint': 'Wallpapers, thumbnails and list snapshots are cached locally. Clearing never removes the current wallpaper.',
-        'cache.assets': 'Wallpaper cache',
+        'cache.hint': 'Local wallpapers, thumbnails and list snapshots are cached locally. Clearing never removes the current wallpaper.',
+        'cache.assets': 'Local wallpapers',
         'cache.thumbs': 'Thumbnail cache',
         'cache.lists': 'List cache',
         'cache.clear': 'Clear',
@@ -461,15 +463,17 @@ window.__ModuleLoader__.load({
          no icon seat for third-party sections, so every unknown id (ours)
          gets the gear of general settings. The Client half marks our row with
          data-lww-nav and paints its own glyph, so the colour still comes from
-         the row text (light/dark, hover and the active row all follow). If the
-         official rows change, decorateSettingsNav matches nothing and the gear
-         stays — nothing breaks.
+         the row text (light/dark, hover and the active row all follow). The
+         box is 16x16 because the shell renders every built-in glyph with
+         size: 16 — anything larger also pushes the label right, so the row no
+         longer lines up with the others. If the official rows change,
+         decorateSettingsNav matches nothing and the gear stays — nothing breaks.
          ================================================================== */
       [data-lww-nav]{
-        --lww-nav-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='3.25' y='5.25' width='17.5' height='13.5' rx='2.4' fill='none' stroke='black' stroke-width='1.7'/%3E%3Ccircle cx='8.6' cy='9.6' r='1.45' fill='black'/%3E%3Cpath d='M3.4 17.6 9.1 12l3 3.1 2.6-2.5 6.2 5z' fill='black'/%3E%3C/svg%3E")}
+        --lww-nav-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='3.25' y='5.25' width='17.5' height='13.5' rx='2.4' fill='none' stroke='black' stroke-width='1.9'/%3E%3Ccircle cx='8.6' cy='9.6' r='1.45' fill='black'/%3E%3Cpath d='M3.4 17.6 9.1 12l3 3.1 2.6-2.5 6.2 5z' fill='black'/%3E%3C/svg%3E")}
       @supports ((mask-image:linear-gradient(black,black)) or (-webkit-mask-image:linear-gradient(black,black))){
         [data-lww-nav]>svg{display:none!important}
-        [data-lww-nav]::before{content:"";flex:none;width:20px;height:20px;
+        [data-lww-nav]::before{content:"";flex:none;width:16px;height:16px;
           background-color:currentColor;
           -webkit-mask:var(--lww-nav-icon) center/contain no-repeat;
           mask:var(--lww-nav-icon) center/contain no-repeat}
@@ -1198,18 +1202,50 @@ window.__ModuleLoader__.load({
       return matched
     }
 
-    /** Self-check view: does a row with our label exist, and is it marked? */
+    /**
+     * Horizontal offset of a row's label from the row's own left edge. The
+     * official glyph is 16x16 plus an 8px gap, so every built-in row lands on
+     * the same value; our decorated row must match it exactly, and that is what
+     * the self-check compares.
+     */
+    function navLabelOffset(row) {
+      try {
+        const label = row && row.querySelector('[class*="_navLabel"]')
+        if (!label || typeof row.getBoundingClientRect !== 'function') return null
+        const box = row.getBoundingClientRect()
+        const text = label.getBoundingClientRect()
+        if (!box || !text || !box.width) return null
+        return Math.round((text.left - box.left) * 10) / 10
+      } catch {
+        return null
+      }
+    }
+
+    /** Self-check view: is a row with our label present, marked and aligned? */
     function probeSettingsNav() {
       const label = navLabel()
       let matched = false
       let decorated = false
+      let ours = null
       for (const row of settingsNavRows()) {
         const text = row.querySelector('[class*="_navLabel"]')
         if (!text || String(text.textContent || '').trim() !== label) continue
         matched = true
         if (row.hasAttribute(NAV_MARK)) decorated = true
+        ours = navLabelOffset(row)
       }
-      return { label, matched, decorated }
+      /* Any built-in row works as the reference: they all use the official 16px
+         glyph box, so an equal offset proves our masked glyph matches. */
+      let reference = null
+      for (const row of settingsNavRows()) {
+        const text = row.querySelector('[class*="_navLabel"]')
+        if (!text || String(text.textContent || '').trim() === label) continue
+        const offset = navLabelOffset(row)
+        if (offset === null) continue
+        reference = offset
+        break
+      }
+      return { label, matched, decorated, geometry: { ours, reference } }
     }
 
     /**
@@ -1562,9 +1598,9 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * One tab row for the whole picker: recently used wallpapers come first and
-     * are kept apart from the three upstream sources by a hairline, because a
-     * cached wallpaper is not a source — it is a shortcut back to one.
+     * One tab row for the whole picker: the local wallpapers come first and are
+     * kept apart from the three upstream sources by a hairline, because a file
+     * already on disk is not a source — it is a shortcut back to one.
      */
     function SourceTabs(props) {
       const tabs = [
@@ -1912,7 +1948,7 @@ window.__ModuleLoader__.load({
     /* Recent wallpapers                                                  */
     /* ------------------------------------------------------------------ */
 
-    const HISTORY_LIMIT = 12
+    const HISTORY_LIMIT = 20
 
     /**
      * "Recently used" card: the Host's capped history (newest first). The Host
@@ -1920,9 +1956,9 @@ window.__ModuleLoader__.load({
      * state to render here — a purge simply shrinks the list.
      */
     /**
-     * Body of the "recently used" tab: the local history grid. No card chrome of
-     * its own — it renders inside the wallpaper picker card, and the Host only
-     * returns rows whose image file still exists.
+     * Body of the local-wallpaper tab: every image kept on this machine, newest
+     * first. No card chrome of its own — it renders inside the picker card, and
+     * the Host returns exactly the files that still exist (plus a row for each).
      */
     function HistoryPanel(props) {
       const { t, state: current, onApply } = props
@@ -2023,9 +2059,10 @@ window.__ModuleLoader__.load({
     ]
 
     /**
-     * Cache card: one row per cache (wallpapers / thumbnails / list snapshots),
-     * each with its own clear button, plus a two-step clear-everything button
-     * (the confirm label reverts after 3s so a stray click cannot wipe it).
+     * Cache card: one row per cache (local wallpapers / thumbnails / list
+     * snapshots), each with its own clear button, plus a two-step
+     * clear-everything button that stays armed until the second click or until
+     * focus leaves it.
      */
     function CacheCard(props) {
       const { t } = props

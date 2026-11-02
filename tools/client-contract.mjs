@@ -479,6 +479,31 @@ assert.ok(
 assert.ok(!code.includes('proxy?u=${encodeURIComponent(source)}'), 'no local asset path must reach the proxy')
 assert.ok(code.includes('lww-history-thumb-empty'), 'a tile without any image gets a quiet placeholder')
 
+/*
+ * Local library: the first picker tab is every wallpaper stored on this machine
+ * — downloaded and uploaded alike — capped at the asset cap (20), and the nav
+ * glyph now uses the official 16px box so its label lines up with every other
+ * row (the shell renders built-in glyphs with `size: 16`).
+ */
+for (const registration of localeRegistrations) {
+  const zh = registration.locale === 'zh'
+  assert.equal(registration.dict['history.title'], zh ? '本地壁纸' : 'Local wallpapers', `${registration.locale} local list title`)
+  assert.equal(registration.dict['cache.assets'], zh ? '本地壁纸' : 'Local wallpapers', `${registration.locale} cache row title`)
+  assert.equal(registration.dict['source.custom'], zh ? '上传' : 'Upload', `${registration.locale} upload tab`)
+  assert.ok(registration.dict['source.name.local'], `${registration.locale} local source name`)
+}
+assert.ok(code.includes('const HISTORY_LIMIT = 20'), 'the local list shows twenty wallpapers')
+assert.ok(
+  code.includes('[data-lww-nav]::before{content:"";flex:none;width:16px;height:16px'),
+  'the masked glyph must use the official 16x16 box',
+)
+assert.ok(
+  !code.includes('[data-lww-nav]::before{content:"";flex:none;width:20px;height:20px'),
+  'the oversized 20px glyph box is gone',
+)
+assert.ok(code.includes("stroke-width='1.9'"), 'the glyph stroke matches the official icon weight')
+assert.ok(code.includes('navLabelOffset'), 'the self-check measures the label offset for alignment')
+
 console.log('PASS  __ModuleLoader__ envelope, id, inject and apply')
 console.log('PASS  one settings.section registration with a localizable label')
 console.log('PASS  zh + en locale dictionaries registered')
@@ -491,3 +516,4 @@ console.log('PASS  art presets, pager strings and small-thumbnail proxy requests
 console.log('PASS  recent-list + cache manager: i18n, endpoints, epoch and history grid')
 console.log('PASS  merged picker: recently-used first tab, sources behind a separator')
 console.log('PASS  settings nav icon decoration + grouped, aligned layout classes')
+console.log('PASS  local library (20, uploads included) + 16px nav glyph geometry')

@@ -65,8 +65,12 @@ const MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 const MAX_JSON_BYTES = 64 * 1024
 const ASSET_RE = /^[a-f0-9]{40}\.(jpg|png|webp)$/
 const MAX_ASSETS = 20
-/** Recent-wallpaper history: newest first, one row per applied asset. */
-const MAX_HISTORY = 12
+/**
+ * Local wallpapers (downloaded + uploaded), newest first. The cap matches the
+ * asset cap on purpose: the list is the on-disk library, not a short "recent"
+ * tail, so every kept file has a row.
+ */
+const MAX_HISTORY = 20
 const BING_TTL = 30 * 60 * 1000
 const ART_TTL = 30 * 60 * 1000
 const FETCH_TIMEOUT = 20_000
@@ -97,7 +101,7 @@ const THUMB_WIDTH_MIN = 20
 const THUMB_WIDTH_MAX = 3840
 
 const MARKETS = new Set(['zh-CN', 'en-US', 'ja-JP', 'en-GB'])
-const SOURCES = new Set(['bing', 'wikimedia', 'cleveland', 'upload'])
+const SOURCES = new Set(['bing', 'wikimedia', 'cleveland', 'upload', 'local'])
 const FITS = new Set(['cover', 'contain'])
 
 export const DEFAULT_STATE = Object.freeze({
@@ -640,6 +644,47 @@ export function apply(ctx) {
     }
   }
 
+  /**
+   * Wallpapers that exist on disk but predate their history row: the list used
+   * to be capped below the asset cap, so older files were kept without a row.
+   * They come back as `local` — the original source of a bare file is not
+   * recorded anywhere, and the file itself is the fact.
+   */
+  async function backfillLocalAssets(entries) {
+    const known = new Set(entries.map((entry) => entry.asset))
+    const extras = []
+    let names = []
+    try {
+      names = await readdir(assetsDir)
+    } catch {
+      return { entries, changed: false }
+    }
+    for (const name of names) {
+      if (!ASSET_RE.test(name)) continue
+      const asset = `${PREFIX}/asset/${name}`
+      if (known.has(asset)) continue
+      try {
+        const info = await stat(join(assetsDir, name))
+        const entry = normalizeHistoryEntry({
+          asset,
+          source: 'local',
+          title: '',
+          credit: '',
+          page: '',
+          thumb: '',
+          usedAt: new Date(info.mtimeMs).toISOString(),
+        })
+        if (entry) extras.push(entry)
+      } catch {
+        /* raced with a prune */
+      }
+    }
+    if (extras.length === 0) return { entries, changed: false }
+    const stamp = (entry) => Date.parse(entry.usedAt) || 0
+    const merged = [...entries, ...extras].sort((left, right) => stamp(right) - stamp(left))
+    return { entries: merged.slice(0, MAX_HISTORY), changed: true }
+  }
+
   /** Load `history.json` once; a missing or corrupt file means an empty history. */
   async function readHistory() {
     if (historyCache) return historyCache
@@ -657,7 +702,11 @@ export function apply(ctx) {
     } catch {
       /* no history yet */
     }
-    historyCache = { version: 1, entries }
+    const merged = await backfillLocalAssets(entries)
+    historyCache = { version: 1, entries: merged.entries }
+    /* Persist the backfill so the synthesized rows keep a stable order and the
+       next start does not have to stat the directory again. */
+    if (merged.changed) return writeHistory(merged.entries)
     return historyCache
   }
 

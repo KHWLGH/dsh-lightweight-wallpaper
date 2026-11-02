@@ -9,7 +9,7 @@
  */
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, readdir, rm, stat, utimes } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
@@ -688,15 +688,19 @@ await step('POST /state applying a wallpaper records it in GET /history', async 
   assert.equal(body.ok, true)
   assert.equal(body.current, jpegAsset)
   assert.equal('available' in body, false, 'GET /history must not expose an available flag')
-  assert.equal(body.entries.length, 1)
+  /* The list is the local library, not a short tail: the PNG uploaded earlier
+     has no row of its own, so the backfill publishes it as a bare `local` row. */
+  assert.equal(body.entries.length, 2, 'every local file gets a row')
   assert.equal(body.entries[0].asset, jpegAsset)
   assert.equal(body.entries[0].thumb, thumb)
   assert.equal(body.entries[0].title, 'First probe')
   assert.ok(body.entries[0].usedAt, 'usedAt must be recorded')
+  assert.equal(body.entries[1].asset, pngAsset)
+  assert.equal(body.entries[1].source, 'local', 'a file without metadata comes back as local')
 
   const onDisk = JSON.parse(await readFile(historyPath, 'utf8'))
   assert.equal(onDisk.version, 1)
-  assert.equal(onDisk.entries.length, 1)
+  assert.equal(onDisk.entries.length, 2, 'the backfilled row is persisted')
 })
 
 await step('re-applying a wallpaper moves it to the front without duplicating history', async () => {
@@ -847,6 +851,63 @@ await step('GET /history forgets a deleted asset and /cache reports it unkept', 
   const cache = (await call('GET', `${P}/cache`)).json()
   assert.equal(cache.assets.kept, 0)
   assert.equal(cache.assets.files, 0)
+})
+
+await step('history publishes a bare asset file as a local row and drops it with the file', async () => {
+  const orphan = Buffer.concat([jpeg, Buffer.from('orphan-file')])
+  const name = assetNameOf(orphan, 'jpg')
+  await writeFile(join(baseDir, 'assets', name), orphan)
+
+  /* A fresh harness reads history.json from disk again, so the backfill runs and
+     has to pick up a file that no row mentions. */
+  const listed = (await callOn(createHarness(), 'GET', `${P}/history`)).json()
+  const found = listed.entries.find((entry) => entry.asset === `${P}/asset/${name}`)
+  assert.ok(found, 'a file without a row must show up in the list')
+  assert.equal(found.source, 'local')
+  assert.equal(found.title, '')
+  assert.ok(found.usedAt, 'a backfilled row carries the file mtime')
+  /* Applying a backfilled row round-trips through normalizeState: `local` is a
+     real source now, not a value that silently degrades to `upload`. */
+  assert.equal(
+    normalizeState({ wallpaper: { asset: `${P}/asset/${name}`, source: 'local' } }).wallpaper.source,
+    'local',
+  )
+
+  await rm(join(baseDir, 'assets', name))
+  const pruned = (await callOn(createHarness(), 'GET', `${P}/history`)).json()
+  assert.equal(
+    pruned.entries.some((entry) => entry.asset === `${P}/asset/${name}`),
+    false,
+    'a vanished file drops out of the list',
+  )
+})
+
+await step('history keeps the newest 20 local wallpapers', async () => {
+  const applied = []
+  for (let index = 0; index < 21; index += 1) {
+    const bytes = Buffer.concat([jpeg, Buffer.from(`cap-probe-${index}`)])
+    const upload = await call('POST', `${P}/upload`, {
+      headers: { ...HEADERS, 'content-type': 'image/jpeg' },
+      body: bytes,
+    })
+    assert.equal(upload.statusCode, 200)
+    const asset = upload.json().asset
+    const res = await call('POST', `${P}/state`, {
+      headers: HEADERS,
+      body: JSON.stringify({ state: { wallpaper: { asset, source: 'upload', title: `Cap ${index}` } } }),
+    })
+    assert.equal(res.statusCode, 200)
+    applied.push(asset)
+  }
+  const history = (await callOn(createHarness(), 'GET', `${P}/history`)).json()
+  assert.equal(history.entries.length, 20, 'the list holds twenty local wallpapers')
+  assert.equal(history.entries[0].asset, applied[applied.length - 1], 'newest first')
+  assert.equal(history.current, applied[applied.length - 1])
+  assert.equal(
+    history.entries.some((entry) => entry.asset === applied[0]),
+    false,
+    'the oldest row is pushed out with its file',
+  )
 })
 
 await step('the entry shim keeps package exports and applies inline without fibers', async () => {
