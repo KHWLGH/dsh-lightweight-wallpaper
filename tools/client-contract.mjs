@@ -285,6 +285,200 @@ assert.deepEqual(Object.keys(tokenLayers[0].tokens).sort(), [
   '--dsw-specific-sidebar-fill',
 ])
 
+/*
+ * Pagination + preset contract: the client half owns the art presets, the pager
+ * strings live in both dictionaries, the shared pager row has its own stylesheet
+ * rules and every tile asks the host proxy for a small thumbnail (the Host snaps
+ * the requested width to one Wikimedia actually serves).
+ */
+const presetBlock = /const PRESETS = \[([\s\S]*?)\n    \]/.exec(code)
+assert.ok(presetBlock, 'PRESETS must be declared in the client bundle')
+const presetIds = [...presetBlock[1].matchAll(/\bid: '([^']+)'/g)].map((match) => match[1])
+assert.equal(presetIds.length, 8, `expected exactly 8 art presets, found ${presetIds.length}`)
+assert.deepEqual(
+  presetIds,
+  ['vanGogh', 'monet', 'impressionism', 'landscape', 'ukiyoe', 'renaissance', 'vermeer', 'klimt'],
+  'the eight art presets',
+)
+for (const registration of localeRegistrations) {
+  for (const id of presetIds) {
+    assert.ok(registration.dict[`preset.${id}`], `${registration.locale} dictionary is missing preset.${id}`)
+  }
+  for (const gone of ['hokusai', 'turner', 'preraph', 'russian', 'stilllife', 'artnouveau']) {
+    assert.equal(
+      registration.dict[`preset.${gone}`],
+      undefined,
+      `${registration.locale} must not ship the removed preset.${gone}`,
+    )
+  }
+  for (const key of ['pager.prev', 'pager.next', 'pager.page', 'pager.total', 'pager.end']) {
+    assert.ok(registration.dict[key], `${registration.locale} dictionary is missing ${key}`)
+  }
+}
+assert.ok(cssText.includes('.lww-pager'), 'stylesheet must carry the pager row')
+assert.ok(cssText.includes('.lww-pager-info'), 'stylesheet must carry the pager info line')
+assert.ok(
+  code.includes('.lww-chips{display:flex;flex-wrap:nowrap'),
+  'the preset row must never wrap: eight chips stay on one line',
+)
+assert.ok(
+  code.includes('flex:none;white-space:nowrap'),
+  'preset chips keep their intrinsic width inside the scrolling row',
+)
+assert.ok(
+  code.includes('/proxy?u=${encodeURIComponent(item.thumb)}&w=480'),
+  'tiles must ask the proxy for a small thumbnail (the Host snaps 480 to Wikimedia’s 500px step)',
+)
+
+/*
+ * Recent list + cache manager: both dictionaries carry the new strings, the
+ * bundle talks to the two new Host endpoints, the recent grid has its own
+ * stylesheet rules and a thumbnail purge bumps the epoch that every proxied
+ * thumbnail URL carries. A history entry is never "missing" — the Host only
+ * returns files that still exist on disk — so that state must not exist.
+ */
+for (const registration of localeRegistrations) {
+  for (const key of [
+    'history.title',
+    'history.hint',
+    'history.empty',
+    'history.current',
+    'cache.title',
+    'cache.hint',
+    'cache.assets',
+    'cache.thumbs',
+    'cache.lists',
+    'cache.clear',
+    'cache.clearAssets',
+    'cache.clearAll',
+    'cache.confirm',
+    'cache.freed',
+    'cache.never',
+  ]) {
+    assert.ok(registration.dict[key], `${registration.locale} dictionary is missing ${key}`)
+  }
+  assert.equal(
+    registration.dict['history.missing'],
+    undefined,
+    'a history entry never goes missing: the Host only returns existing files',
+  )
+  assert.equal(
+    registration.dict['cache.confirm'],
+    registration.locale === 'zh' ? '确认清理' : 'Confirm clear',
+    `${registration.locale} clear-all confirmation is a plain two-step label`,
+  )
+}
+assert.ok(!code.includes('confirmTimer'), 'no countdown timer around the clear-all button')
+assert.ok(!code.includes('（3 秒）') && !code.includes('(3 s)'), 'the countdown copy is gone')
+assert.ok(
+  code.includes('onBlur: () => setConfirming(false)'),
+  'the armed clear-all label disarms when focus leaves the button',
+)
+for (const endpoint of ['/history', '/cache', '/cache/clear']) {
+  assert.ok(
+    code.includes(`'${endpoint}'`) || code.includes(`\`${endpoint}`),
+    `the client must call the ${endpoint} Host endpoint`,
+  )
+}
+assert.ok(code.includes('.lww-history-grid'), 'stylesheet must carry the recent-wallpaper grid')
+for (const rule of ['.lww-history-item.is-current', '.lww-cache-row', '.lww-badge']) {
+  assert.ok(code.includes(rule), `stylesheet must carry ${rule}`)
+}
+assert.ok(code.includes('&v=${thumbEpoch}'), 'proxied thumbnails must carry the thumbnail epoch')
+assert.ok(code.includes("thumb: item.thumb || ''"), 'pin and auto-rotate must carry the remote thumb')
+assert.ok(code.includes('function formatBytes'), 'cache sizes must be formatted by formatBytes')
+assert.ok(!code.includes('history.missing'), 'there is no history.missing state in the client')
+
+/*
+ * Merged picker: recently used is the first AND default tab, the three upstream
+ * sources follow behind a hairline, the standalone history card is gone, and the
+ * picker never auto-jumps away from the history tab.
+ */
+const tabKeys = [
+  "['history', props.t('history.title')]",
+  "['bing', props.t('source.bing')]",
+  "['art', props.t('source.art')]",
+  "['custom', props.t('source.custom')]",
+]
+const tabPositions = tabKeys.map((needle) => code.indexOf(needle))
+assert.ok(
+  tabPositions.every((position) => position >= 0),
+  'SourceTabs must declare history + the three sources',
+)
+assert.deepEqual(
+  [...tabPositions].sort((a, b) => a - b),
+  tabPositions,
+  'recently used must be the first tab, the sources follow it',
+)
+assert.ok(code.includes("useState('history')"), 'the picker opens on the recently-used tab')
+assert.ok(code.includes("id === 'bing'"), 'the sources must be separated from the history tab')
+assert.ok(cssText.includes('.lww-tab-sep'), 'stylesheet must carry the tab separator')
+assert.ok(!code.includes('HistoryCard'), 'the standalone history card must be gone')
+assert.ok(!code.includes('onEmpty'), 'the picker must not fall back to a source tab when history is empty')
+for (const registration of localeRegistrations) {
+  const expected = registration.locale === 'zh' ? '选择壁纸' : 'Choose a wallpaper'
+  assert.equal(registration.dict['source.title'], expected, `${registration.locale} picker card title`)
+}
+
+/*
+ * Settings nav icon + page layout. The shell has no icon seat for third-party
+ * sections (they fall back to the gear), so the Client marks its own nav row by
+ * localized label and paints the glyph through CSS; the page groups its cards
+ * and aligns its controls with shared classes instead of inline margins.
+ */
+for (const registration of localeRegistrations) {
+  for (const key of ['group.wallpaper', 'group.display', 'group.data']) {
+    assert.ok(registration.dict[key], `${registration.locale} dictionary is missing ${key}`)
+  }
+}
+for (const needle of [
+  'data-lww-nav',
+  'data-shortcut-modal="settings"',
+  '_navCell',
+  '_navLabel',
+  'decorateSettingsNav',
+  'installSettingsNav',
+  'nav: { decorate: decorateSettingsNav, probe: probeSettingsNav }',
+  'navIcon: probeSettingsNav()',
+]) {
+  assert.ok(code.includes(needle), `client must carry ${needle} for the settings nav icon`)
+}
+for (const rule of [
+  '[data-lww-nav]>svg',
+  'mask-image',
+  'data:image/svg+xml',
+  '.lww-group',
+  '.lww-card-actions',
+  '.lww-preview',
+  'tabular-nums',
+  'minmax(112px,1fr)',
+]) {
+  assert.ok(cssText.includes(rule), `stylesheet must carry ${rule}`)
+}
+assert.ok(!/style: \{ marginTop/.test(code), 'layout gaps must come from classes, not inline margins')
+
+/*
+ * Cache buttons share one column width, and a wallpaper without a remote thumb
+ * (uploads) must never be sent through the proxy: its asset path is local and
+ * the proxy only accepts absolute https URLs, so that used to break the tile.
+ */
+assert.ok(
+  cssText.includes('.lww-cache-row .lww-btn{min-width:132px'),
+  'all three cache buttons must share one width',
+)
+assert.ok(!code.includes(':first-child .lww-btn'), 'no per-row cache button width override')
+assert.ok(code.includes("'cache.clearAssets': 'Clear old'"), 'the english clear label must stay short')
+assert.ok(
+  code.includes('/^https?:\\/\\//i.test(entry.thumb)'),
+  'history thumbnails must only proxy absolute https thumbs',
+)
+assert.ok(
+  code.includes("return entry && typeof entry.asset === 'string' ? entry.asset : ''"),
+  'an entry without a remote thumb must fall back to the stored asset',
+)
+assert.ok(!code.includes('proxy?u=${encodeURIComponent(source)}'), 'no local asset path must reach the proxy')
+assert.ok(code.includes('lww-history-thumb-empty'), 'a tile without any image gets a quiet placeholder')
+
 console.log('PASS  __ModuleLoader__ envelope, id, inject and apply')
 console.log('PASS  one settings.section registration with a localizable label')
 console.log('PASS  zh + en locale dictionaries registered')
@@ -293,3 +487,7 @@ console.log('PASS  glass + contrast attributes land on the root with no hidden b
 console.log('PASS  glass tint comes from the stylesheet, not from an inline variable')
 console.log('PASS  a dark snapshot repaints the scrim: payload → getTheme() → attribute')
 console.log('PASS  stylesheet carries composer-card, new-session and contrast rules')
+console.log('PASS  art presets, pager strings and small-thumbnail proxy requests')
+console.log('PASS  recent-list + cache manager: i18n, endpoints, epoch and history grid')
+console.log('PASS  merged picker: recently-used first tab, sources behind a separator')
+console.log('PASS  settings nav icon decoration + grouped, aligned layout classes')

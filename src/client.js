@@ -66,6 +66,57 @@ window.__ModuleLoader__.load({
       return Math.min(1, Math.max(0, value)).toFixed(3)
     }
 
+    /** Human cache size: integer bytes, then one decimal for KB and MB. */
+    function formatBytes(value) {
+      const bytes = Number(value)
+      if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+      if (bytes < 1024) return `${Math.round(bytes)} B`
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    }
+
+    /** Language tag used for the relative timestamps of the recent list. */
+    function localeTag() {
+      try {
+        const lang = document.documentElement && document.documentElement.lang
+        if (lang) return lang
+      } catch {
+        /* non-browser context */
+      }
+      try {
+        if (typeof navigator !== 'undefined' && navigator && navigator.language) return navigator.language
+      } catch {
+        /* no navigator */
+      }
+      return 'en'
+    }
+
+    /**
+     * "3 minutes ago" / "3 分钟前" for one history entry. Intl ships with the
+     * browser; without it the absolute date is still a usable fallback.
+     */
+    function relativeTime(value) {
+      const stamp = Date.parse(value)
+      if (!Number.isFinite(stamp)) return ''
+      const delta = stamp - Date.now()
+      const steps = [
+        ['year', 365 * 24 * 60 * 60 * 1000],
+        ['month', 30 * 24 * 60 * 60 * 1000],
+        ['day', 24 * 60 * 60 * 1000],
+        ['hour', 60 * 60 * 1000],
+        ['minute', 60 * 1000],
+      ]
+      try {
+        const formatter = new Intl.RelativeTimeFormat(localeTag(), { numeric: 'auto' })
+        for (const [unit, size] of steps) {
+          if (Math.abs(delta) >= size) return formatter.format(Math.round(delta / size), unit)
+        }
+        return formatter.format(0, 'second')
+      } catch {
+        return new Date(stamp).toLocaleDateString()
+      }
+    }
+
     /**
      * Colour scheme carried by one theme snapshot. `ThemeSnapshot.active`
      * always resolves `system` upstream, so this is the scheme that is really
@@ -113,6 +164,10 @@ window.__ModuleLoader__.load({
       ['en-GB', 'English (UK)'],
     ]
 
+    /**
+     * Art search presets. Kept to eight: a painter or a movement each, so the
+     * chip row stays short while every entry still runs on both sources.
+     */
     const PRESETS = [
       { id: 'vanGogh', label: 'preset.vanGogh', query: 'Vincent van Gogh paintings' },
       { id: 'monet', label: 'preset.monet', query: 'Claude Monet paintings' },
@@ -120,6 +175,8 @@ window.__ModuleLoader__.load({
       { id: 'landscape', label: 'preset.landscape', query: 'Chinese landscape painting' },
       { id: 'ukiyoe', label: 'preset.ukiyoe', query: 'Ukiyo-e woodblock print' },
       { id: 'renaissance', label: 'preset.renaissance', query: 'Renaissance painting' },
+      { id: 'vermeer', label: 'preset.vermeer', query: 'Johannes Vermeer painting' },
+      { id: 'klimt', label: 'preset.klimt', query: 'Gustav Klimt painting' },
     ]
 
     const DICTS = {
@@ -128,18 +185,21 @@ window.__ModuleLoader__.load({
         'page.title': '壁纸与背景',
         'page.desc': '从必应每日图、维基共享艺术或克利夫兰 CC0 馆藏里选一张，也可以上传本地图片。壁纸会铺在窗口最底层，画布与侧栏按下方滑杆透出。',
         'enable': '启用壁纸',
-        'source.title': '图片来源',
+        'group.wallpaper': '壁纸',
+        'group.display': '显示',
+        'group.data': '数据',
+        'source.title': '选择壁纸',
         'source.bing': '必应每日',
         'source.art': '艺术馆藏',
         'source.custom': '本地上传',
         'bing.market': '地区',
         'bing.refresh': '刷新',
-        'bing.note': '必应每日图按本地日期提供最近 8 天，图片仅限个人壁纸用途。',
+        'bing.note': '必应每日图提供最近 16 天，每页 8 张，最多 2 页；图片仅限个人壁纸用途。',
         'art.wikimedia': '维基共享（公共领域）',
         'art.cleveland': '克利夫兰（CC0）',
         'art.search': '搜索画家、作品或流派…',
         'art.searchBtn': '搜索',
-        'art.note': '搜索结果来自对应馆藏接口，作者与许可显示在缩略图上。',
+        'art.note': '搜索结果来自对应馆藏接口，每页 24 张可翻页，缩略图缓存在本地。',
         'custom.pick': '选择图片',
         'custom.hint': '支持 JPEG / PNG / WebP，超过 6MB 会先压到最长边 2560 再上传。',
         'custom.current': '当前自定义图片',
@@ -183,28 +243,53 @@ window.__ModuleLoader__.load({
         'preset.landscape': '中国山水',
         'preset.ukiyoe': '浮世绘',
         'preset.renaissance': '文艺复兴',
+        'preset.vermeer': '维米尔',
+        'preset.klimt': '克林姆特',
+        'pager.prev': '上一页',
+        'pager.next': '下一页',
+        'pager.page': '第 {n} 页',
+        'pager.total': '共 {n} 张',
+        'pager.end': '没有更多了',
         'error.pick': '应用这张图失败',
         'error.upload': '上传失败',
         'busy.pin': '正在下载并缓存…',
         'busy.upload': '正在处理图片…',
+        'history.title': '最近使用',
+        'history.hint': '按使用时间倒序，点一下就直接切回；当前这张会高亮。',
+        'history.empty': '还没有使用记录。',
+        'history.current': '当前',
+        'cache.title': '缓存',
+        'cache.hint': '壁纸、缩略图和列表快照都存在本地；清理不会删除当前壁纸。',
+        'cache.assets': '壁纸缓存',
+        'cache.thumbs': '缩略图缓存',
+        'cache.lists': '列表缓存',
+        'cache.clear': '清理',
+        'cache.clearAssets': '清理旧壁纸',
+        'cache.clearAll': '全部清理',
+        'cache.confirm': '确认清理',
+        'cache.freed': '已释放 {size}',
+        'cache.never': '暂无缓存',
       },
       en: {
         'nav.title': 'Wallpaper',
         'page.title': 'Wallpaper & background',
         'page.desc': 'Pick a Bing daily image, a public-domain artwork from Wikimedia Commons or a CC0 work from the Cleveland Museum of Art — or upload your own. The wallpaper sits behind the whole window; the canvas and sidebar reveal it through the sliders below.',
         'enable': 'Enable wallpaper',
-        'source.title': 'Source',
+        'group.wallpaper': 'Wallpaper',
+        'group.display': 'Display',
+        'group.data': 'Data',
+        'source.title': 'Choose a wallpaper',
         'source.bing': 'Bing daily',
         'source.art': 'Museum art',
         'source.custom': 'Upload',
         'bing.market': 'Region',
         'bing.refresh': 'Refresh',
-        'bing.note': 'Bing serves the last 8 days for your date. Images are for personal wallpaper use only.',
+        'bing.note': 'Bing serves the last 16 days, 8 images per page, up to 2 pages. Images are for personal wallpaper use only.',
         'art.wikimedia': 'Wikimedia Commons (public domain)',
         'art.cleveland': 'Cleveland Museum (CC0)',
         'art.search': 'Search an artist, work or movement…',
         'art.searchBtn': 'Search',
-        'art.note': 'Results come from the selected museum API; artist and license are shown on each thumbnail.',
+        'art.note': 'Results come from the selected museum API; 24 images per page with paging, thumbnails are cached locally.',
         'custom.pick': 'Choose image',
         'custom.hint': 'JPEG / PNG / WebP. Files over 6MB are downscaled to 2560px before upload.',
         'custom.current': 'Current custom image',
@@ -248,10 +333,32 @@ window.__ModuleLoader__.load({
         'preset.landscape': 'Chinese landscape',
         'preset.ukiyoe': 'Ukiyo-e',
         'preset.renaissance': 'Renaissance',
+        'preset.vermeer': 'Vermeer',
+        'preset.klimt': 'Klimt',
+        'pager.prev': 'Previous',
+        'pager.next': 'Next',
+        'pager.page': 'Page {n}',
+        'pager.total': '{n} in total',
+        'pager.end': 'No more results',
         'error.pick': 'Could not apply that image',
         'error.upload': 'Upload failed',
         'busy.pin': 'Downloading and caching…',
         'busy.upload': 'Processing image…',
+        'history.title': 'Recently used',
+        'history.hint': 'Newest first — click a tile to switch straight back. The current one is highlighted.',
+        'history.empty': 'Nothing has been used yet.',
+        'history.current': 'Current',
+        'cache.title': 'Cache',
+        'cache.hint': 'Wallpapers, thumbnails and list snapshots are cached locally. Clearing never removes the current wallpaper.',
+        'cache.assets': 'Wallpaper cache',
+        'cache.thumbs': 'Thumbnail cache',
+        'cache.lists': 'List cache',
+        'cache.clear': 'Clear',
+        'cache.clearAssets': 'Clear old',
+        'cache.clearAll': 'Clear everything',
+        'cache.confirm': 'Confirm clear',
+        'cache.freed': 'Freed {size}',
+        'cache.never': 'Nothing cached',
       },
     }
 
@@ -348,6 +455,26 @@ window.__ModuleLoader__.load({
          24px of content padding, so the content column is ~564px: one column
          of compact cards is the layout that fits without clipping.
          ================================================================== */
+
+      /* ==================================================================
+         Settings nav icon. The shell picks a nav glyph by section id and has
+         no icon seat for third-party sections, so every unknown id (ours)
+         gets the gear of general settings. The Client half marks our row with
+         data-lww-nav and paints its own glyph, so the colour still comes from
+         the row text (light/dark, hover and the active row all follow). If the
+         official rows change, decorateSettingsNav matches nothing and the gear
+         stays — nothing breaks.
+         ================================================================== */
+      [data-lww-nav]{
+        --lww-nav-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='3.25' y='5.25' width='17.5' height='13.5' rx='2.4' fill='none' stroke='black' stroke-width='1.7'/%3E%3Ccircle cx='8.6' cy='9.6' r='1.45' fill='black'/%3E%3Cpath d='M3.4 17.6 9.1 12l3 3.1 2.6-2.5 6.2 5z' fill='black'/%3E%3C/svg%3E")}
+      @supports ((mask-image:linear-gradient(black,black)) or (-webkit-mask-image:linear-gradient(black,black))){
+        [data-lww-nav]>svg{display:none!important}
+        [data-lww-nav]::before{content:"";flex:none;width:20px;height:20px;
+          background-color:currentColor;
+          -webkit-mask:var(--lww-nav-icon) center/contain no-repeat;
+          mask:var(--lww-nav-icon) center/contain no-repeat}
+      }
+
       .lww-page{width:100%;max-width:100%;box-sizing:border-box;padding:2px 0 32px;
         color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.55}
       .lww-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin:0 0 14px}
@@ -355,14 +482,20 @@ window.__ModuleLoader__.load({
       .lww-title{margin:0;font-size:18px;font-weight:600;line-height:26px}
       .lww-desc{margin:5px 0 0;font-size:12.5px;line-height:1.55;color:var(--dsw-alias-label-secondary);max-width:46ch}
       .lww-enable{display:flex;align-items:center;gap:8px;flex:none;padding-top:3px}
+      .lww-group{margin:18px 2px 8px;font-size:11.5px;font-weight:600;letter-spacing:.04em;
+        color:var(--dsw-alias-label-secondary)}
+      .lww-group:first-of-type{margin-top:2px}
       .lww-card{box-sizing:border-box;border:1px solid var(--dsw-alias-border-l2);border-radius:14px;
-        padding:14px 16px;margin-bottom:12px;background:var(--dsw-alias-bg-layer-1)}
+        padding:14px 16px;margin-bottom:14px;background:var(--dsw-alias-bg-layer-1)}
       body[data-ds-dark-theme] .lww-card{background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-1))}
       .lww-card:last-child{margin-bottom:0}
-      .lww-card-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}
-      .lww-card-head-main{min-width:0}
-      .lww-card-title{font-size:13.5px;font-weight:600;line-height:20px}
-      .lww-card-sub{font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary)}
+      .lww-card-hd{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
+        flex-wrap:wrap;margin-bottom:12px}
+      .lww-card-head-main{flex:1 1 220px;min-width:0}
+      .lww-card-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;
+        flex-wrap:wrap;margin-top:12px}
+      .lww-card-title{font-size:14px;font-weight:600;line-height:20px}
+      .lww-card-sub{font-size:12.5px;line-height:18px;color:var(--dsw-alias-label-secondary)}
       .lww-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
       .lww-switch{position:relative;width:38px;height:22px;border-radius:11px;border:none;flex:none;padding:0;
         cursor:pointer;transition:background .15s;
@@ -380,6 +513,9 @@ window.__ModuleLoader__.load({
       .lww-tab:hover{color:var(--dsw-alias-label-primary)}
       .lww-tab.is-active{color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1);
         box-shadow:0 1px 2px rgba(0,0,0,.1)}
+      /* Recently used is a shortcut, not a source: keep the two groups apart. */
+      .lww-tab-sep{width:1px;height:16px;margin:2px 4px;flex:none;align-self:center;
+        background:var(--dsw-alias-border-l2)}
       .lww-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px}
       .lww-tile{position:relative;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;padding:0;
         overflow:hidden;cursor:pointer;text-align:left;color:inherit;font:inherit;aspect-ratio:16/10;
@@ -393,21 +529,31 @@ window.__ModuleLoader__.load({
         display:flex;flex-direction:column;gap:2px}
       .lww-tile-title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .lww-tile-credit{opacity:.82;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-      .lww-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+      /* The presets stay on ONE line: they never wrap, and if a locale makes
+         them wider than the ~532px content column the row scrolls sideways
+         (a thin scrollbar marks it) instead of pushing the grid down. */
+      .lww-chips{display:flex;flex-wrap:nowrap;gap:6px;margin-bottom:10px;
+        overflow-x:auto;padding-bottom:2px;scrollbar-width:thin;
+        overscroll-behavior-x:contain}
+      .lww-chips::-webkit-scrollbar{height:4px}
+      .lww-chips::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l2);border-radius:999px}
+      .lww-chips::-webkit-scrollbar-track{background:transparent}
       .lww-chip{border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);
-        border-radius:999px;padding:3px 11px;font:inherit;font-size:12px;cursor:pointer;
+        border-radius:999px;padding:3px 10px;font:inherit;font-size:11.5px;cursor:pointer;
+        flex:none;white-space:nowrap;
         color:var(--dsw-alias-label-secondary);transition:color .12s,border-color .12s}
       .lww-chip:hover{color:var(--dsw-alias-label-primary)}
       .lww-chip.is-active{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary);
         background:color-mix(in srgb,var(--dsw-alias-brand-primary) 12%,transparent)}
-      .lww-row{display:grid;grid-template-columns:minmax(88px,1fr) minmax(110px,1.7fr) 54px 20px;
+      .lww-row{display:grid;grid-template-columns:104px minmax(0,1fr) 56px 22px;
         align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--dsw-alias-border-l1)}
       .lww-row:last-child{border-bottom:none}
       .lww-row-split{display:flex;align-items:center;justify-content:space-between;gap:12px}
       .lww-row-main{min-width:0}
       .lww-row-label{font-size:12.5px}
-      .lww-row-hint{margin-top:1px;font-size:11px;color:var(--dsw-alias-label-secondary)}
-      .lww-unit{font-size:11px;color:var(--dsw-alias-label-secondary)}
+      .lww-row-hint{margin-top:1px;font-size:11.5px;color:var(--dsw-alias-label-secondary)}
+      .lww-unit{font-size:11.5px;color:var(--dsw-alias-label-secondary);text-align:right}
+      .lww-preview{margin-top:12px;max-width:100%;max-height:220px;border-radius:10px;display:block}
       .lww-range{-webkit-appearance:none;appearance:none;width:100%;min-width:0;height:16px;
         background:transparent;cursor:pointer;padding:0;margin:0}
       .lww-range::-webkit-slider-runnable-track{height:4px;border-radius:999px;
@@ -418,9 +564,10 @@ window.__ModuleLoader__.load({
       .lww-range:focus-visible{outline:none}
       .lww-range:focus-visible::-webkit-slider-thumb{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
       .lww-range:disabled{opacity:.55;cursor:default}
-      .lww-num{width:54px;height:26px;box-sizing:border-box;border-radius:7px;
+      .lww-num{width:56px;height:26px;box-sizing:border-box;border-radius:7px;
         border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-2);
-        color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 4px;text-align:center}
+        color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 6px;
+        text-align:right;font-variant-numeric:tabular-nums}
       .lww-select{height:28px;box-sizing:border-box;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);
         background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);
         font:inherit;font-size:12px;padding:0 8px}
@@ -446,11 +593,55 @@ window.__ModuleLoader__.load({
         background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent);
         color:var(--dsw-alias-state-error-primary)}
       .lww-empty{padding:22px 0;text-align:center;color:var(--dsw-alias-label-secondary);font-size:12.5px}
+      .lww-gap{margin-top:10px}
+      .lww-gap-sm{margin-top:8px}
+      .lww-gap-b{margin-bottom:10px}
+      /* Pager: prev / centred page label / next, with the end note on its own line. */
+      .lww-pager{display:flex;align-items:center;gap:8px;margin-top:12px}
+      .lww-pager-info{flex:1;min-width:0;text-align:center;font-size:12px;
+        color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}
+      .lww-pager-end{margin-top:6px;text-align:center;font-size:12px;
+        color:var(--dsw-alias-label-secondary)}
       .lww-current{display:flex;align-items:center;gap:12px}
-      .lww-current-thumb{width:92px;height:58px;border-radius:9px;object-fit:cover;flex:none;
+      .lww-current-thumb{width:104px;height:64px;border-radius:9px;object-fit:cover;flex:none;
         background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1)}
       .lww-current-body{min-width:0}
       .lww-current-title{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      /* Recent wallpapers: four mini tiles per row. The content column is only
+         ~564px, so titles and timestamps ellipsize instead of stretching it. */
+      .lww-history-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:8px}
+      .lww-history-item{position:relative;display:flex;flex-direction:column;gap:6px;min-width:0;
+        box-sizing:border-box;padding:6px;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;
+        text-align:left;color:inherit;font:inherit;cursor:pointer;background:var(--dsw-alias-bg-layer-2);
+        transition:transform .12s,border-color .12s}
+      .lww-history-item:hover{transform:translateY(-1px)}
+      .lww-history-item.is-current{border-color:var(--dsw-alias-brand-primary);
+        box-shadow:inset 0 0 0 1px var(--dsw-alias-brand-primary)}
+      .lww-history-thumb{width:100%;aspect-ratio:16/10;object-fit:cover;display:block;border-radius:7px;
+        background:var(--dsw-alias-bg-layer-1)}
+      /* No usable image source: a quiet block instead of the browser's broken icon. */
+      .lww-history-thumb-empty{background:linear-gradient(135deg,
+        var(--dsw-alias-bg-layer-1),var(--dsw-alias-bg-layer-2));
+        display:flex;align-items:center;justify-content:center;color:var(--dsw-alias-label-tertiary);
+        font-size:16px;line-height:1}
+      .lww-history-body{min-width:0;display:flex;flex-direction:column;gap:1px}
+      .lww-history-title{font-size:11.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .lww-history-meta{font-size:11px;line-height:1.35;color:var(--dsw-alias-label-secondary);
+        overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .lww-badge{position:absolute;top:12px;left:12px;padding:1px 6px;border-radius:999px;
+        font-size:10.5px;line-height:15px;font-weight:600;pointer-events:none;
+        color:var(--dsw-alias-label-primary-foreground,#fff);
+        background:var(--dsw-alias-button-primary-fill,var(--dsw-alias-brand-primary))}
+      /* Cache manager: text column, right-aligned numbers, then the button. The
+         button column is one fixed width for every row, so all three buttons
+         align on both edges (the labels differ in length). */
+      .lww-cache-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;
+        align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--dsw-alias-border-l1)}
+      .lww-cache-row:last-child{border-bottom:none}
+      .lww-cache-main{min-width:0}
+      .lww-cache-size{font-size:12px;color:var(--dsw-alias-label-secondary);text-align:right;
+        min-width:92px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+      .lww-cache-row .lww-btn{min-width:132px;justify-content:center}
       .lww-fade{opacity:.72}
     `
 
@@ -471,6 +662,10 @@ window.__ModuleLoader__.load({
     let saveTimer = null
     let paintTimer = null
     let saveChain = Promise.resolve()
+    /** Bumped after a thumbnail purge so every proxied thumbnail URL changes. */
+    let thumbEpoch = 0
+    /** Recent-list subscribers: purging wallpapers drops files out of history. */
+    const historyListeners = new Set()
 
     function snapshot() {
       return { state, ready, errorText, busy }
@@ -489,6 +684,22 @@ window.__ModuleLoader__.load({
     function subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
+    }
+
+    function subscribeHistory(listener) {
+      historyListeners.add(listener)
+      return () => historyListeners.delete(listener)
+    }
+
+    /** The cache card asks the recent list to reload after `assets`/`all`. */
+    function notifyHistory() {
+      for (const listener of historyListeners) {
+        try {
+          listener()
+        } catch (error) {
+          console.error('[lightweight-wallpaper] history listener failed', error)
+        }
+      }
     }
 
     function paintCache() {
@@ -707,6 +918,8 @@ window.__ModuleLoader__.load({
             title: item.title || '',
             credit: item.credit || '',
             page: item.page || '',
+            /** Remote small image; the client never downloads it directly. */
+            thumb: item.thumb || '',
             addedAt: new Date().toISOString(),
           },
         })
@@ -838,6 +1051,7 @@ window.__ModuleLoader__.load({
             title: item.title || '',
             credit: item.credit || '',
             page: item.page || '',
+            thumb: item.thumb || '',
             addedAt: new Date().toISOString(),
           },
         })
@@ -912,8 +1126,138 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /**
+     * Grid thumbnails go through the Host proxy so they land in its disk cache.
+     * 480 is only the request: the Host snaps it up to 500px, one of the widths
+     * Wikimedia actually serves (direct requests for any other width get 400).
+     * `v` is the thumbnail epoch: a purge bumps it and every tile refetches.
+     */
     function tileImage(item) {
-      return `${PREFIX}/proxy?u=${encodeURIComponent(item.thumb)}`
+      return `${PREFIX}/proxy?u=${encodeURIComponent(item.thumb)}&w=480&v=${thumbEpoch}`
+    }
+
+    /**
+     * Recent-list thumbnails. A remote thumb (absolute https URL) goes through
+     * the Host proxy, which caches the 330px rendition. Uploads have no remote
+     * thumb — the proxy only accepts absolute https URLs, so a local asset path
+     * there answers 400 — and read the stored asset directly instead: /asset is
+     * same-origin and cached as immutable.
+     */
+    function historyImage(entry) {
+      const remote =
+        entry && typeof entry.thumb === 'string' && /^https?:\/\//i.test(entry.thumb) ? entry.thumb : ''
+      if (remote) return `${PREFIX}/proxy?u=${encodeURIComponent(remote)}&w=330&v=${thumbEpoch}`
+      return entry && typeof entry.asset === 'string' ? entry.asset : ''
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Settings nav icon                                                  */
+    /* ------------------------------------------------------------------ */
+
+    const NAV_MARK = 'data-lww-nav'
+
+    /** Our settings-section label in the active locale (nav.title). */
+    function navLabel() {
+      try {
+        return translateRef ? String(translateRef('nav.title') || '').trim() : ''
+      } catch {
+        return ''
+      }
+    }
+
+    /** Nav rows of the settings dialog; empty while the panel is closed. */
+    function settingsNavRows() {
+      try {
+        if (typeof document.querySelectorAll !== 'function') return []
+        return Array.from(document.querySelectorAll('[data-shortcut-modal="settings"] [class*="_navCell"]'))
+      } catch {
+        return []
+      }
+    }
+
+    /**
+     * The official nav carries no section id on its rows and its icon map is
+     * keyed by the shipped ids only, so a third-party section always gets the
+     * gear of "general settings". Our row is found by its localized label and
+     * marked; the glyph itself is painted by CSS on the mark.
+     */
+    function decorateSettingsNav() {
+      const label = navLabel()
+      if (!label) return false
+      let matched = false
+      for (const row of settingsNavRows()) {
+        const text = row.querySelector('[class*="_navLabel"]')
+        const ours = Boolean(text) && String(text.textContent || '').trim() === label
+        if (ours) {
+          if (!row.hasAttribute(NAV_MARK)) row.setAttribute(NAV_MARK, '')
+          matched = true
+        } else if (row.hasAttribute(NAV_MARK)) {
+          row.removeAttribute(NAV_MARK)
+        }
+      }
+      return matched
+    }
+
+    /** Self-check view: does a row with our label exist, and is it marked? */
+    function probeSettingsNav() {
+      const label = navLabel()
+      let matched = false
+      let decorated = false
+      for (const row of settingsNavRows()) {
+        const text = row.querySelector('[class*="_navLabel"]')
+        if (!text || String(text.textContent || '').trim() !== label) continue
+        matched = true
+        if (row.hasAttribute(NAV_MARK)) decorated = true
+      }
+      return { label, matched, decorated }
+    }
+
+    /**
+     * Keep the mark alive: the panel is portalled on open and unmounted on
+     * close, and the label text follows the locale. The observer watches only
+     * body childList (one node per open/close) and merges runs into a frame.
+     */
+    function installSettingsNav() {
+      let frame = 0
+      let disposed = false
+      const isFrame = typeof requestAnimationFrame === 'function'
+      const schedule = () => {
+        if (frame || disposed) return
+        if (isFrame) {
+          frame = requestAnimationFrame(() => {
+            frame = 0
+            if (!disposed) decorateSettingsNav()
+          })
+        } else {
+          frame = setTimeout(() => {
+            frame = 0
+            if (!disposed) decorateSettingsNav()
+          }, 16)
+        }
+      }
+      decorateSettingsNav()
+      let observer = null
+      try {
+        if (typeof MutationObserver === 'function' && document.body) {
+          observer = new MutationObserver(schedule)
+          observer.observe(document.body, { childList: true })
+        }
+      } catch {
+        observer = null
+      }
+      return () => {
+        disposed = true
+        try {
+          if (frame) {
+            if (isFrame) cancelAnimationFrame(frame)
+            else clearTimeout(frame)
+          }
+        } catch {
+          /* the frame is already gone */
+        }
+        if (observer) observer.disconnect()
+        for (const row of settingsNavRows()) row.removeAttribute(NAV_MARK)
+      }
     }
 
     /* ------------------------------------------------------------------ */
@@ -1122,6 +1466,7 @@ window.__ModuleLoader__.load({
         },
         styleTag: Boolean(document.getElementById('dsh-lightweight-wallpaper-styles')),
         tokens,
+        navIcon: probeSettingsNav(),
         scheme: {
           paint: paintScheme,
           service: schemeOf(serviceSnapshot),
@@ -1216,16 +1561,24 @@ window.__ModuleLoader__.load({
       )
     }
 
+    /**
+     * One tab row for the whole picker: recently used wallpapers come first and
+     * are kept apart from the three upstream sources by a hairline, because a
+     * cached wallpaper is not a source — it is a shortcut back to one.
+     */
     function SourceTabs(props) {
       const tabs = [
+        ['history', props.t('history.title')],
         ['bing', props.t('source.bing')],
         ['art', props.t('source.art')],
         ['custom', props.t('source.custom')],
       ]
-      return h(
-        'div',
-        { className: 'lww-tabs', role: 'tablist' },
-        tabs.map(([id, label]) =>
+      const children = []
+      for (const [id, label] of tabs) {
+        if (id === 'bing') {
+          children.push(h('span', { key: 'separator', className: 'lww-tab-sep', 'aria-hidden': 'true' }))
+        }
+        children.push(
           h(
             'button',
             {
@@ -1238,24 +1591,72 @@ window.__ModuleLoader__.load({
             },
             label,
           ),
+        )
+      }
+      return h('div', { className: 'lww-tabs', role: 'tablist' }, children)
+    }
+
+    /**
+     * Shared pager row: `‹ previous` · `page N` (+ `· total M` when known) ·
+     * `next ›`. Both panels own their page state; this component only renders
+     * it and reports the two intents.
+     */
+    function Pager(props) {
+      const { t, page, hasMore, total, loading, items, onPrev, onNext } = props
+      const label = t('pager.page').replace('{n}', String(page + 1))
+      const totalLabel = total > 0 ? t('pager.total').replace('{n}', String(total)) : ''
+      const empty = Array.isArray(items) && items.length === 0
+      return h(
+        'div',
+        null,
+        h(
+          'div',
+          { className: 'lww-pager' },
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'lww-btn',
+              disabled: loading || page === 0,
+              onClick: onPrev,
+            },
+            `‹ ${t('pager.prev')}`,
+          ),
+          h('span', { className: 'lww-pager-info' }, totalLabel ? `${label} · ${totalLabel}` : label),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'lww-btn',
+              disabled: loading || !hasMore,
+              onClick: onNext,
+            },
+            `${t('pager.next')} ›`,
+          ),
         ),
+        page > 0 && empty ? h('div', { className: 'lww-pager-end' }, t('pager.end')) : null,
       )
     }
 
     function BingPanel(props) {
       const { t, state: current, disabled, pin } = props
       const [items, setItems] = useState([])
+      const [page, setPage] = useState(0)
+      const [hasMore, setHasMore] = useState(false)
       const [loading, setLoading] = useState(true)
       const [note, setNote] = useState('')
       const [error, setError] = useState('')
       const load = useCallback(
-        async (market) => {
+        async (market, nextPage = 0) => {
           setLoading(true)
           setError('')
           setNote('')
           try {
-            const data = await api(`/bing?mkt=${encodeURIComponent(market)}&n=8`)
+            const data = await api(`/bing?mkt=${encodeURIComponent(market)}&n=8&page=${nextPage}`)
             setItems(Array.isArray(data && data.items) ? data.items : [])
+            const reportedPage = data && Number(data.page)
+            setPage(Number.isFinite(reportedPage) ? reportedPage : nextPage)
+            setHasMore(Boolean(data && data.hasMore))
             if (data && data.stale) setNote(t('stale'))
             if (data && data.ok === false) setError(data.error || t('empty'))
           } catch (err) {
@@ -1267,14 +1668,14 @@ window.__ModuleLoader__.load({
         [t],
       )
       useEffect(() => {
-        load(current.market)
+        load(current.market, 0)
       }, [load, current.market])
       return h(
         'div',
         null,
         h(
           'div',
-          { className: 'lww-actions', style: { marginBottom: 10 } },
+          { className: 'lww-actions lww-gap-b' },
           h('span', { className: 'lww-card-sub' }, t('bing.market')),
           h(
             'select',
@@ -1286,7 +1687,7 @@ window.__ModuleLoader__.load({
             MARKETS.map(([id, label]) => h('option', { key: id, value: id }, label)),
           ),
           h('span', { style: { flex: 1 } }),
-          h('button', { type: 'button', className: 'lww-btn', disabled, onClick: () => load(current.market) }, t('bing.refresh')),
+          h('button', { type: 'button', className: 'lww-btn', disabled, onClick: () => load(current.market, 0) }, t('bing.refresh')),
         ),
         loading ? h('div', { className: 'lww-empty' }, t('loading')) : null,
         !loading && items.length === 0 ? h('div', { className: 'lww-empty' }, t('empty')) : null,
@@ -1306,9 +1707,19 @@ window.__ModuleLoader__.load({
               ),
             )
           : null,
+        h(Pager, {
+          t,
+          page,
+          hasMore,
+          total: 0,
+          loading,
+          items,
+          onPrev: () => load(current.market, Math.max(0, page - 1)),
+          onNext: () => load(current.market, page + 1),
+        }),
         error ? h('div', { className: 'lww-error' }, error) : null,
-        note ? h('div', { className: 'lww-note', style: { marginTop: 8 } }, note) : null,
-        h('div', { className: 'lww-note', style: { marginTop: 10 } }, t('bing.note')),
+        note ? h('div', { className: 'lww-note lww-gap-sm' }, note) : null,
+        h('div', { className: 'lww-note lww-gap' }, t('bing.note')),
       )
     }
 
@@ -1318,20 +1729,28 @@ window.__ModuleLoader__.load({
       const [preset, setPreset] = useState('vanGogh')
       const [query, setQuery] = useState(PRESETS[0].query)
       const [items, setItems] = useState([])
+      const [page, setPage] = useState(0)
+      const [hasMore, setHasMore] = useState(false)
+      const [total, setTotal] = useState(0)
       const [loading, setLoading] = useState(true)
       const [note, setNote] = useState('')
       const [error, setError] = useState('')
       const load = useCallback(
-        async (nextSource, nextQuery) => {
+        async (nextSource, nextQuery, nextPage = 0) => {
           if (!nextQuery.trim()) return
           setLoading(true)
           setError('')
           setNote('')
           try {
             const data = await api(
-              `/art?source=${encodeURIComponent(nextSource)}&q=${encodeURIComponent(nextQuery)}&limit=24`,
+              `/art?source=${encodeURIComponent(nextSource)}&q=${encodeURIComponent(nextQuery)}&limit=24&page=${nextPage}`,
             )
             setItems(Array.isArray(data && data.items) ? data.items : [])
+            const reportedPage = data && Number(data.page)
+            setPage(Number.isFinite(reportedPage) ? reportedPage : nextPage)
+            setHasMore(Boolean(data && data.hasMore))
+            const reportedTotal = Number(data && data.total)
+            setTotal(Number.isFinite(reportedTotal) && reportedTotal > 0 ? reportedTotal : 0)
             if (data && data.stale) setNote(t('stale'))
             if (data && data.ok === false) setError(data.error || t('empty'))
           } catch (err) {
@@ -1343,19 +1762,19 @@ window.__ModuleLoader__.load({
         [t],
       )
       useEffect(() => {
-        load('wikimedia', PRESETS[0].query)
+        load('wikimedia', PRESETS[0].query, 0)
       }, [load])
       const choosePreset = (next) => {
         setPreset(next.id)
         setQuery(next.query)
-        load(source, next.query)
+        load(source, next.query, 0)
       }
       return h(
         'div',
         null,
         h(
           'div',
-          { className: 'lww-actions', style: { marginBottom: 10 } },
+          { className: 'lww-actions lww-gap-b' },
           h(
             'select',
             {
@@ -1364,7 +1783,7 @@ window.__ModuleLoader__.load({
               onChange: (event) => {
                 const next = event.target.value
                 setSource(next)
-                load(next, query)
+                load(next, query, 0)
               },
             },
             h('option', { value: 'wikimedia' }, t('art.wikimedia')),
@@ -1377,12 +1796,12 @@ window.__ModuleLoader__.load({
             'aria-label': t('art.search'),
             onChange: (event) => setQuery(event.target.value),
             onKeyDown: (event) => {
-              if (event.key === 'Enter') load(source, query)
+              if (event.key === 'Enter') load(source, query, 0)
             },
           }),
           h(
             'button',
-            { type: 'button', className: 'lww-btn is-primary', disabled, onClick: () => load(source, query) },
+            { type: 'button', className: 'lww-btn is-primary', disabled, onClick: () => load(source, query, 0) },
             t('art.searchBtn'),
           ),
         ),
@@ -1420,9 +1839,19 @@ window.__ModuleLoader__.load({
               ),
             )
           : null,
+        h(Pager, {
+          t,
+          page,
+          hasMore,
+          total,
+          loading,
+          items,
+          onPrev: () => load(source, query, Math.max(0, page - 1)),
+          onNext: () => load(source, query, page + 1),
+        }),
         error ? h('div', { className: 'lww-error' }, error) : null,
-        note ? h('div', { className: 'lww-note', style: { marginTop: 8 } }, note) : null,
-        h('div', { className: 'lww-note', style: { marginTop: 10 } }, t('art.note')),
+        note ? h('div', { className: 'lww-note lww-gap-sm' }, note) : null,
+        h('div', { className: 'lww-note lww-gap' }, t('art.note')),
       )
     }
 
@@ -1469,23 +1898,268 @@ window.__ModuleLoader__.load({
           h('button', { type: 'button', className: 'lww-btn is-primary', disabled, onClick: () => inputRef.current && inputRef.current.click() }, t('custom.pick')),
           h('input', { ref: inputRef, type: 'file', accept: 'image/*', style: { display: 'none' }, onChange: onFile }),
         ),
-        h('div', { className: 'lww-note', style: { marginTop: 8 } }, t('custom.hint')),
+        h('div', { className: 'lww-note lww-gap-sm' }, t('custom.hint')),
         preview
-          ? h('img', { src: preview, alt: '', style: { marginTop: 12, maxWidth: '100%', maxHeight: 220, borderRadius: 10, display: 'block' } })
+          ? h('img', { src: preview, alt: '', className: 'lww-preview' })
           : isUpload
-            ? h('img', { src: current.wallpaper.asset, alt: '', style: { marginTop: 12, maxWidth: '100%', maxHeight: 220, borderRadius: 10, display: 'block' } })
+            ? h('img', { src: current.wallpaper.asset, alt: '', className: 'lww-preview' })
             : null,
         error ? h('div', { className: 'lww-error' }, error) : null,
+      )
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Recent wallpapers                                                  */
+    /* ------------------------------------------------------------------ */
+
+    const HISTORY_LIMIT = 12
+
+    /**
+     * "Recently used" card: the Host's capped history (newest first). The Host
+     * only returns entries whose file still exists, so there is no "missing"
+     * state to render here — a purge simply shrinks the list.
+     */
+    /**
+     * Body of the "recently used" tab: the local history grid. No card chrome of
+     * its own — it renders inside the wallpaper picker card, and the Host only
+     * returns rows whose image file still exists.
+     */
+    function HistoryPanel(props) {
+      const { t, state: current, onApply } = props
+      const [entries, setEntries] = useState([])
+      const [loading, setLoading] = useState(true)
+      const [error, setError] = useState('')
+      const asset = current && current.wallpaper && current.wallpaper.asset ? current.wallpaper.asset : ''
+      const load = useCallback(async () => {
+        try {
+          const data = await api('/history')
+          setEntries(Array.isArray(data && data.entries) ? data.entries : [])
+          setError('')
+        } catch (err) {
+          setError(String(err && err.message ? err.message : err))
+        } finally {
+          setLoading(false)
+        }
+      }, [])
+      useEffect(() => {
+        load()
+      }, [load])
+      /*
+       * A pin lands on the Host first: state.json is only written after the
+       * download finishes, so wait 600ms after the asset flips before asking
+       * for the list again — otherwise the new entry (and the current badge)
+       * would still be one round behind.
+       */
+      const seenAsset = useRef(asset)
+      useEffect(() => {
+        if (seenAsset.current === asset) return undefined
+        const timer = setTimeout(() => {
+          seenAsset.current = asset
+          load()
+        }, 600)
+        return () => clearTimeout(timer)
+      }, [asset, load])
+      /* Purging cached wallpapers removes files, so the list is reloaded. */
+      useEffect(() => subscribeHistory(load), [load])
+      const items = entries.slice(0, HISTORY_LIMIT)
+      return h(
+        'div',
+        null,
+        h('div', { className: 'lww-note lww-gap-b' }, t('history.hint')),
+        loading ? h('div', { className: 'lww-empty' }, t('loading')) : null,
+        !loading && items.length === 0 ? h('div', { className: 'lww-empty' }, t('history.empty')) : null,
+        items.length > 0
+          ? h(
+              'div',
+              { className: 'lww-history-grid' },
+              items.map((entry) => {
+                const isCurrent = Boolean(asset) && entry.asset === asset
+                const sourceName = t('source.name.' + entry.source) || entry.source || ''
+                const when = relativeTime(entry.usedAt)
+                const meta = when ? `${sourceName} · ${when}` : sourceName
+                const title = entry.title || sourceName
+                const preview = historyImage(entry)
+                return h(
+                  'button',
+                  {
+                    key: entry.asset,
+                    type: 'button',
+                    className: `lww-history-item${isCurrent ? ' is-current' : ''}`,
+                    title: `${title}\n${meta}`,
+                    onClick: () => onApply(entry),
+                  },
+                  preview
+                    ? h('img', {
+                        className: 'lww-history-thumb',
+                        src: preview,
+                        alt: '',
+                        loading: 'lazy',
+                        decoding: 'async',
+                      })
+                    : h('span', { className: 'lww-history-thumb lww-history-thumb-empty', 'aria-hidden': 'true' }, '🖼'),
+                  h(
+                    'span',
+                    { className: 'lww-history-body' },
+                    h('span', { className: 'lww-history-title' }, title),
+                    h('span', { className: 'lww-history-meta' }, meta),
+                  ),
+                  isCurrent ? h('span', { className: 'lww-badge' }, t('history.current')) : null,
+                )
+              }),
+            )
+          : null,
+        error ? h('div', { className: 'lww-error' }, error) : null,
+      )
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Cache manager                                                      */
+    /* ------------------------------------------------------------------ */
+
+    const CACHE_ROWS = [
+      ['assets', 'cache.assets', 'cache.clearAssets'],
+      ['thumbs', 'cache.thumbs', 'cache.clear'],
+      ['lists', 'cache.lists', 'cache.clear'],
+    ]
+
+    /**
+     * Cache card: one row per cache (wallpapers / thumbnails / list snapshots),
+     * each with its own clear button, plus a two-step clear-everything button
+     * (the confirm label reverts after 3s so a stray click cannot wipe it).
+     */
+    function CacheCard(props) {
+      const { t } = props
+      const [cache, setCache] = useState(null)
+      const [clearing, setClearing] = useState('')
+      const [message, setMessage] = useState('')
+      const [confirming, setConfirming] = useState(false)
+      const load = useCallback(async () => {
+        try {
+          const data = await api('/cache')
+          if (data && data.assets) setCache(data)
+        } catch (err) {
+          setMessage(String(err && err.message ? err.message : err))
+        }
+      }, [])
+      useEffect(() => {
+        load()
+      }, [load])
+      const clear = async (what) => {
+        setConfirming(false)
+        setClearing(what)
+        setMessage('')
+        try {
+          const data = await api('/cache/clear', { method: 'POST', body: JSON.stringify({ what }) })
+          if (data && data.cache && data.cache.assets) setCache(data.cache)
+          const freed = Number(data && data.freedBytes)
+          setMessage(t('cache.freed').replace('{size}', formatBytes(freed)))
+          if (what === 'thumbs' || what === 'all') {
+            /* Thumbnail URLs are cached by the browser: bump the epoch and
+               repaint so every tile asks the proxy for a fresh copy. */
+            thumbEpoch += 1
+            setState({}, { persist: false })
+          }
+          if (what === 'assets' || what === 'all') notifyHistory()
+        } catch (err) {
+          setMessage(String(err && err.message ? err.message : err))
+        } finally {
+          setClearing('')
+        }
+      }
+      /* Two-step, no countdown: the first click arms the label and it stays armed
+         until the second click clears or the button loses focus. */
+      const armClearAll = () => {
+        if (confirming) {
+          clear('all')
+          return
+        }
+        setConfirming(true)
+      }
+      return h(
+        'div',
+        { className: 'lww-card' },
+        h(
+          'div',
+          { className: 'lww-card-hd' },
+          h(
+            'div',
+            { className: 'lww-card-head-main' },
+            h('div', { className: 'lww-card-title' }, t('cache.title')),
+            h('div', { className: 'lww-card-sub' }, t('cache.hint')),
+          ),
+        ),
+        h(
+          'div',
+          { className: 'lww-cache-list' },
+          CACHE_ROWS.map(([what, labelKey, clearKey]) => {
+            const bucket = (cache && cache[what]) || {}
+            const files = Number(bucket.files) || 0
+            const bytes = Number(bucket.bytes) || 0
+            const detail = files > 0 ? `${files} · ${formatBytes(bytes)}` : t('cache.never')
+            return h(
+              'div',
+              { className: 'lww-cache-row', key: what },
+              h(
+                'div',
+                { className: 'lww-cache-main' },
+                h('div', { className: 'lww-row-label' }, t(labelKey)),
+                h('div', { className: 'lww-cache-size' }, detail),
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'lww-btn',
+                  disabled: Boolean(clearing),
+                  onClick: () => clear(what),
+                },
+                clearing === what ? t('loading') : t(clearKey),
+              ),
+            )
+          }),
+        ),
+        h(
+          'div',
+          { className: 'lww-card-actions' },
+          h(
+            'button',
+            {
+              type: 'button',
+              className: `lww-btn${confirming ? ' is-primary' : ''}`,
+              disabled: Boolean(clearing),
+              onClick: armClearAll,
+              onBlur: () => setConfirming(false),
+            },
+            confirming ? t('cache.confirm') : t('cache.clearAll'),
+          ),
+        ),
+        message ? h('div', { className: 'lww-note lww-gap-sm' }, message) : null,
       )
     }
 
     function SettingsPage() {
       const value = useStore()
       const current = value.state
-      const [tab, setTab] = useState('bing')
+      /* Recently used is the default tab; the source tabs behave as before. */
+      const [tab, setTab] = useState('history')
       const translate = useTranslate()
       const disabled = Boolean(value.busy) || !value.ready
       const price = current.wallpaper
+      /** Applying a history entry is a local switch: no /pin round trip. */
+      const applyHistory = (entry) => {
+        if (!entry || !entry.asset) return
+        setState({
+          wallpaper: {
+            asset: entry.asset,
+            source: entry.source || '',
+            title: entry.title || '',
+            credit: entry.credit || '',
+            page: entry.page || '',
+            thumb: entry.thumb || '',
+            addedAt: entry.usedAt || new Date().toISOString(),
+          },
+        })
+      }
       return h(
         'div',
         { className: 'lww-page', 'data-slot': 'settings.section' },
@@ -1510,6 +2184,7 @@ window.__ModuleLoader__.load({
           ),
         ),
 
+        h('div', { className: 'lww-group' }, translate('group.wallpaper')),
         h(
           'div',
           { className: 'lww-card' },
@@ -1549,11 +2224,13 @@ window.__ModuleLoader__.load({
             disabled ? h('span', { className: 'lww-card-sub' }, translate('loading')) : null,
           ),
           h(SourceTabs, { value: tab, onChange: setTab, t: translate }),
+          tab === 'history' ? h(HistoryPanel, { t: translate, state: current, onApply: applyHistory }) : null,
           tab === 'bing' ? h(BingPanel, { t: translate, state: current, disabled, pin: pinItem }) : null,
           tab === 'art' ? h(ArtPanel, { t: translate, state: current, disabled, pin: pinItem }) : null,
           tab === 'custom' ? h(CustomPanel, { t: translate, state: current, disabled }) : null,
         ),
 
+        h('div', { className: 'lww-group' }, translate('group.display')),
         h(
           'div',
           { className: 'lww-card' },
@@ -1561,20 +2238,6 @@ window.__ModuleLoader__.load({
             'div',
             { className: 'lww-card-hd' },
             h('div', { className: 'lww-card-title' }, translate('effect.title')),
-            h(
-              'div',
-              { className: 'lww-actions' },
-              h(
-                'button',
-                { type: 'button', className: 'lww-btn', onClick: () => sendSelfCheck('manual') },
-                translate('effect.selfcheck'),
-              ),
-              h(
-                'button',
-                { type: 'button', className: 'lww-btn', onClick: () => setState(EFFECT_DEFAULTS) },
-                translate('effect.reset'),
-              ),
-            ),
           ),
           h(
             'div',
@@ -1645,7 +2308,21 @@ window.__ModuleLoader__.load({
               onChange: (next) => setState({ contrastEnabled: next }),
             }),
           ),
-          h('div', { className: 'lww-note', style: { marginTop: 10 } }, translate('effect.hint')),
+          h('div', { className: 'lww-note lww-gap' }, translate('effect.hint')),
+          h(
+            'div',
+            { className: 'lww-card-actions' },
+            h(
+              'button',
+              { type: 'button', className: 'lww-btn', onClick: () => sendSelfCheck('manual') },
+              translate('effect.selfcheck'),
+            ),
+            h(
+              'button',
+              { type: 'button', className: 'lww-btn', onClick: () => setState(EFFECT_DEFAULTS) },
+              translate('effect.reset'),
+            ),
+          ),
         ),
 
         h(
@@ -1693,7 +2370,7 @@ window.__ModuleLoader__.load({
                   unit: 'px',
                   onChange: (next) => setState({ panelBlur: next }),
                 }),
-                h('div', { className: 'lww-note', style: { marginTop: 9 } }, translate('panel.hint')),
+                h('div', { className: 'lww-note lww-gap' }, translate('panel.hint')),
               )
             : h('div', { className: 'lww-note' }, translate('panel.off')),
         ),
@@ -1717,6 +2394,9 @@ window.__ModuleLoader__.load({
             }),
           ),
         ),
+
+        h('div', { className: 'lww-group' }, translate('group.data')),
+        h(CacheCard, { t: translate }),
       )
     }
 
@@ -1797,7 +2477,15 @@ window.__ModuleLoader__.load({
         ),
       )
 
-      ctx.effect(() => ctx.locale.subscribe(() => emit()))
+      ctx.effect(() => ctx.locale.subscribe(() => {
+        /* The nav row label follows the locale, so re-match it after a switch. */
+        decorateSettingsNav()
+        emit()
+      }))
+
+      /* The settings nav has no icon seat for third-party sections: mark our
+         row so CSS can paint its glyph instead of the shell's default gear. */
+      ctx.effect(() => installSettingsNav())
 
       ctx.effect(() => {
         const timer = setTimeout(() => sendSelfCheck('boot'), 1600)
@@ -1805,7 +2493,11 @@ window.__ModuleLoader__.load({
       })
 
       try {
-        window.__dshLightweightWallpaper = { check: collectSelfCheck, report: sendSelfCheck }
+        window.__dshLightweightWallpaper = {
+          check: collectSelfCheck,
+          report: sendSelfCheck,
+          nav: { decorate: decorateSettingsNav, probe: probeSettingsNav },
+        }
       } catch {
         /* non-browser context */
       }

@@ -50,10 +50,16 @@ function clip(text, max) {
 /* Bing daily wallpaper                                                     */
 /* ------------------------------------------------------------------------ */
 
-export function bingRequestUrl(market = 'zh-CN', count = 8) {
+/**
+ * Bing HPImageArchive request URL.
+ * `idx` is the wallpaper-day offset (0 = today); the Host half pages by eight
+ * entries, so page N reads `idx = N * 8`, clamped to Bing's 0..8 window.
+ */
+export function bingRequestUrl(market = 'zh-CN', count = 8, idx = 0) {
   const mkt = BING_MARKETS.includes(market) ? market : 'zh-CN'
   const n = Math.min(Math.max(Number(count) || 8, 1), 8)
-  return `${BING_ORIGIN}/HPImageArchive.aspx?format=js&idx=0&n=${n}&mkt=${mkt}`
+  const start = Math.min(Math.max(Math.round(Number(idx) || 0), 0), 8)
+  return `${BING_ORIGIN}/HPImageArchive.aspx?format=js&idx=${start}&n=${n}&mkt=${mkt}`
 }
 
 function bingSized(urlbase, size) {
@@ -93,7 +99,11 @@ export function parseBing(payload) {
 /* Wikimedia Commons art                                                    */
 /* ------------------------------------------------------------------------ */
 
-export function wikimediaRequestUrl(query, limit = 24) {
+/**
+ * Commons search request URL. Later pages carry the `gsroffset` cursor the API
+ * returned with the previous answer; page one intentionally sends none.
+ */
+export function wikimediaRequestUrl(query, limit = 24, offset = 0) {
   const params = new URLSearchParams({
     action: 'query',
     format: 'json',
@@ -106,6 +116,9 @@ export function wikimediaRequestUrl(query, limit = 24) {
     iiprop: 'url|size|mime|extmetadata',
     iiurlwidth: '960',
   })
+  // Only later pages need the cursor; page one must stay request-identical.
+  const skip = Math.max(Math.round(Number(offset) || 0), 0)
+  if (skip > 0) params.set('gsroffset', String(skip))
   return `https://commons.wikimedia.org/w/api.php?${params.toString()}`
 }
 
@@ -113,6 +126,41 @@ export function wikimediaRequestUrl(query, limit = 24) {
 export function resizeWikimediaThumb(thumb, width) {
   if (typeof thumb !== 'string') return null
   return thumb.replace(/\/(\d+)px-/, `/${width}px-`)
+}
+
+/** Hosts whose thumbnail URLs end in a `/NNNpx-<name>` segment we can rewrite. */
+const THUMB_HOSTS = new Set(['upload.wikimedia.org', 'thumb.wikimedia.org', 'commons.wikimedia.org'])
+
+/**
+ * Widths Wikimedia production actually serves. Direct requests (hotlinking) for
+ * any other width now answer 400 — "Use thumbnail sizes listed on
+ * https://w.wiki/GHai" — so every rewrite has to land on one of these steps.
+ */
+export const WIKIMEDIA_THUMB_STEPS = [20, 40, 60, 120, 250, 330, 500, 960, 1280, 1920, 3840]
+
+/** Smallest standard Wikimedia width at or above `width`. */
+export function standardThumbWidth(width = 500) {
+  const wanted = Math.max(Math.round(Number(width) || 500), WIKIMEDIA_THUMB_STEPS[0])
+  return WIKIMEDIA_THUMB_STEPS.find((step) => step >= wanted) ?? WIKIMEDIA_THUMB_STEPS.at(-1)
+}
+
+/**
+ * Normalize a thumbnail request. Only Wikimedia hosts embed the width in the
+ * path, and only their standard steps are accepted, so the value snaps up to
+ * the closest step (the Client asks for 480 and gets 500). Every other
+ * allowlisted URL is returned byte-identical, because their thumb sizes are
+ * fixed by the source.
+ */
+export function thumbUrl(url, width = 500) {
+  if (typeof url !== 'string' || url.length === 0) return url
+  let host
+  try {
+    host = new URL(url).hostname.toLowerCase()
+  } catch {
+    return url
+  }
+  if (!THUMB_HOSTS.has(host)) return url
+  return resizeWikimediaThumb(url, standardThumbWidth(width)) || url
 }
 
 function commonsFileUrl(title) {
@@ -199,6 +247,29 @@ export function parseCleveland(payload) {
     })
   }
   return items
+}
+
+/* ------------------------------------------------------------------------ */
+/* Paging                                                                   */
+/* ------------------------------------------------------------------------ */
+
+/**
+ * Report whether a source returned more pages and, when it knows, how many
+ * items exist in total. Commons only exposes an opaque `continue` cursor, so
+ * it never reports a total; Cleveland publishes `info.total`.
+ */
+export function paginationOf(source, payload, options = {}) {
+  const limit = Math.max(Number(options.limit) || 0, 0)
+  const offset = Math.max(Number(options.offset) || 0, 0)
+  if (source === 'wikimedia') {
+    return { hasMore: Boolean(payload?.continue?.gsroffset), total: 0 }
+  }
+  if (source === 'cleveland') {
+    const total = Number(payload?.info?.total) || 0
+    const hasMore = total > 0 ? offset + limit < total : (payload?.data?.length ?? 0) >= limit
+    return { hasMore, total }
+  }
+  return { hasMore: false, total: 0 }
 }
 
 /* ------------------------------------------------------------------------ */

@@ -15,6 +15,7 @@ import {
   bingRequestUrl,
   clevelandRequestUrl,
   isAllowedRemote,
+  paginationOf,
   parseBing,
   parseCleveland,
   parseWikimedia,
@@ -45,6 +46,20 @@ async function getJson(url, timeout = 30_000) {
   })
   assert.equal(response.status, 200, `GET ${url} -> ${response.status}`)
   return response.json()
+}
+
+/** JSON fetch with retries; pagination probes use this so CDN flakiness is not a FAIL. */
+async function getJsonRetry(url, attempts = 3) {
+  let lastError = null
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await getJson(url)
+    } catch (error) {
+      lastError = error
+      if (attempt < attempts) await sleep(1200)
+    }
+  }
+  throw lastError
 }
 
 async function imageBytes(url, timeout = 60_000) {
@@ -135,6 +150,43 @@ if (cmaItem) {
   await timed('Cleveland thumb', () => probeImage(cmaItem.thumb, 2))
   await timed('Cleveland large JPEG', () => probeImage(cmaItem.full, 2))
 }
+
+console.log('\n== Pagination (network failures are recorded, never thrown) ==')
+await timed('Commons page 2 differs from page 1 (gsroffset=24)', async () => {
+  const first = parseWikimedia(await getJsonRetry(wikimediaRequestUrl('Van Gogh paintings', 6)))
+  const payload = await getJsonRetry(wikimediaRequestUrl('Van Gogh paintings', 6, 24))
+  const second = parseWikimedia(payload)
+  assert.ok(first.length >= 1, 'page 1 returned nothing')
+  assert.ok(second.length >= 1, 'page 2 returned nothing')
+  assert.notEqual(first[0].id, second[0].id, 'page 2 repeated the first page')
+  const { hasMore, total } = paginationOf('wikimedia', payload, { limit: 6, offset: 24 })
+  assert.equal(total, 0)
+  return `page1=${first[0].title} | page2=${second[0].title} | hasMore=${hasMore}`
+})
+
+await timed('Cleveland page 2 differs from page 1 (skip=24)', async () => {
+  // "monet" only has ~18 CC0 hits, so skip=24 needs a broader query to stay in range.
+  const first = parseCleveland(await getJsonRetry(clevelandRequestUrl('impressionism', 6)))
+  const payload = await getJsonRetry(clevelandRequestUrl('impressionism', 6, 24))
+  const second = parseCleveland(payload)
+  assert.ok(first.length >= 1, 'page 1 returned nothing')
+  assert.ok(second.length >= 1, 'page 2 returned nothing')
+  assert.notEqual(first[0].id, second[0].id, 'page 2 repeated the first page')
+  const { hasMore, total } = paginationOf('cleveland', payload, { limit: 6, offset: 24 })
+  assert.ok(total > 0, `total=${total}`)
+  return `page1=${first[0].title} | page2=${second[0].title} | total=${total} | hasMore=${hasMore}`
+})
+
+await timed('Bing page 2 is older than page 1 (idx=8)', async () => {
+  const first = parseBing(await getJsonRetry(bingRequestUrl('zh-CN', 8, 0)))
+  const second = parseBing(await getJsonRetry(bingRequestUrl('zh-CN', 8, 8)))
+  assert.ok(first.length >= 1, 'idx=0 returned nothing')
+  assert.ok(second.length >= 1, 'idx=8 returned nothing')
+  assert.match(first[0].date, /^\d{8}$/)
+  assert.match(second[0].date, /^\d{8}$/)
+  assert.ok(second[0].date < first[0].date, `idx=8 ${second[0].date} is not older than idx=0 ${first[0].date}`)
+  return `idx=0 ${first[0].date} | idx=8 ${second[0].date}`
+})
 
 const failed = results.filter((entry) => !entry.ok)
 console.log('\n' + '='.repeat(64))
