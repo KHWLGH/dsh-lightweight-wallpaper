@@ -60,6 +60,42 @@ window.__ModuleLoader__.load({
       return Math.min(Math.max(Math.round(number), min), max)
     }
 
+    /** Percent slider (0–100) to a CSS alpha with a stable three-decimal form. */
+    function alphaValue(percent) {
+      const value = (Number(percent) || 0) / 100
+      return Math.min(1, Math.max(0, value)).toFixed(3)
+    }
+
+    /**
+     * Colour scheme carried by one theme snapshot. `ThemeSnapshot.active`
+     * always resolves `system` upstream, so this is the scheme that is really
+     * on screen.
+     */
+    function schemeOf(snapshot) {
+      const value = snapshot && snapshot.active && snapshot.active.colorScheme
+      return value === 'dark' || value === 'light' ? value : ''
+    }
+
+    /**
+     * Scheme the paint must use. The theme service owns it — the change
+     * payload first, then `getTheme()` — because the `data-ds-dark-theme`
+     * attribute on body is written by another plugin's presenter: reading it
+     * makes every repaint depend on listener order and leaves the scrim one
+     * theme behind on the switch. The attribute stays a last resort only.
+     */
+    function resolvedScheme(theme, snapshot) {
+      const fromEvent = schemeOf(snapshot)
+      if (fromEvent) return fromEvent
+      try {
+        const service = theme && typeof theme.getTheme === 'function' ? theme.getTheme() : null
+        const fromService = schemeOf(service)
+        if (fromService) return fromService
+      } catch {
+        /* service unavailable — fall through to the palette attribute */
+      }
+      return document.body && document.body.hasAttribute('data-ds-dark-theme') ? 'dark' : 'light'
+    }
+
     /** Merge a cached or host payload onto the defaults without losing new fields. */
     function hydrateState(raw) {
       const next = { ...DEFAULT_STATE, ...(raw && typeof raw === 'object' ? raw : {}) }
@@ -246,6 +282,14 @@ window.__ModuleLoader__.load({
         background-color:transparent!important;background-image:none!important;
         border-radius:0!important;border-left:none!important;border-right:none!important}
 
+      /* Glass tint belongs to the palette attribute, not to a script: the
+         composer card is a descendant of body, so it inherits the value and a
+         theme switch repaints it even if no JavaScript runs at all. The
+         rgba() rules below keep a light fallback for the window before the
+         attribute exists. */
+      html[data-lww-active] body{--lww-scrim-rgb:255,255,255}
+      html[data-lww-active] body[data-ds-dark-theme]{--lww-scrim-rgb:21,21,23}
+
       /* ==================================================================
          Composer glass. ONE shared material (--lww-panel-a / --lww-panel-b)
          on ONE surface: the input card itself. The dock around it, the
@@ -271,13 +315,15 @@ window.__ModuleLoader__.load({
 
       /* ==================================================================
          Light-mode text contrast. Where there is no glass the official light
-         greys sit close to a veiled photo, so secondary/tertiary step one
-         shade darker — only while a wallpaper is active and the theme is
+         greys sit close to a veiled photo, so the three readable grey tiers
+         each step two shades darker (secondary 700→800, tertiary 600→750,
+         caption 400→700) — only while a wallpaper is active and the theme is
          light. Primary, dark theme and the no-wallpaper state are untouched.
          ================================================================== */
       html[data-lww-active][data-lww-contrast] body:not([data-ds-dark-theme]){
-        --dsw-alias-label-secondary:var(--dsw-static-neutral-bluish-750);
-        --dsw-alias-label-tertiary:var(--dsw-static-neutral-bluish-700)}
+        --dsw-alias-label-secondary:var(--dsw-static-neutral-bluish-800);
+        --dsw-alias-label-tertiary:var(--dsw-static-neutral-bluish-750);
+        --dsw-alias-label-caption:var(--dsw-static-neutral-bluish-700)}
 
       /* ==================================================================
          Popover / menu surfaces. The composer "+" menu, the model picker and
@@ -418,6 +464,10 @@ window.__ModuleLoader__.load({
     let busy = ''
     const listeners = new Set()
     let visualApply = () => {}
+    /** Scheme the last paint used; reported by the self-check. */
+    let paintScheme = 'light'
+    /** The theme service, kept for the self-check's independent read. */
+    let themeRef = null
     let saveTimer = null
     let paintTimer = null
     let saveChain = Promise.resolve()
@@ -551,6 +601,10 @@ window.__ModuleLoader__.load({
 
     function createVisual(theme) {
       let disposeTokenLayer = null
+      /* `overrideTokens` publishes `theme/change` synchronously, which re-enters
+         applyVisual; the slot is reserved before the call so the nested paint
+         cannot stack an endless run of layers. */
+      let tokenLayerRequested = false
       const root = document.documentElement
 
       function clearTokens() {
@@ -560,22 +614,9 @@ window.__ModuleLoader__.load({
         }
       }
 
-      function isDark() {
-        return document.body ? document.body.hasAttribute('data-ds-dark-theme') : false
-      }
-
-      function alphaValue(percent) {
-        const value = (Number(percent) || 0) / 100
-        return Math.min(1, Math.max(0, value)).toFixed(3)
-      }
-
-      /** Theme-aware scrim so the single masked layer works in light and dark. */
-      function floorColor(alpha) {
-        return isDark() ? `rgba(21,21,23,${alpha})` : `rgba(255,255,255,${alpha})`
-      }
-
-      function scrimRgb() {
-        return isDark() ? '21,21,23' : '255,255,255'
+      /** Scrim colour for one scheme; the alpha still comes from the slider. */
+      function floorColor(alpha, scheme) {
+        return scheme === 'dark' ? `rgba(21,21,23,${alpha})` : `rgba(255,255,255,${alpha})`
       }
 
       function clearGlass() {
@@ -583,11 +624,14 @@ window.__ModuleLoader__.load({
         root.removeAttribute('data-lww-contrast')
         root.style.removeProperty('--lww-panel-a')
         root.style.removeProperty('--lww-panel-b')
+        /* The tint is a stylesheet value now; drop any inline leftover. */
         root.style.removeProperty('--lww-scrim-rgb')
       }
 
-      return function applyVisual(next) {
+      return function applyVisual(next, snapshot) {
         try {
+          const scheme = resolvedScheme(theme, snapshot)
+          paintScheme = scheme
           const wallpaper = next && next.enabled ? next.wallpaper : null
           if (!wallpaper || !wallpaper.asset) {
             root.removeAttribute('data-lww-active')
@@ -605,22 +649,26 @@ window.__ModuleLoader__.load({
           root.style.setProperty('--lww-fit', next.fit === 'contain' ? 'contain' : 'cover')
           root.style.setProperty('--lww-blur', `${Number(next.blur) || 0}px`)
           root.style.setProperty('--lww-dim', String(((Number(next.dim) || 0) / 100).toFixed(3)))
-          root.style.setProperty('--lww-floor', floorColor(alphaValue(next.opacity)))
+          root.style.setProperty('--lww-floor', floorColor(alphaValue(next.opacity), scheme))
           if (next.contrastEnabled === false) root.removeAttribute('data-lww-contrast')
           else root.setAttribute('data-lww-contrast', '')
           if (next.panelEnabled === false) {
             clearGlass()
           } else {
             root.setAttribute('data-lww-glass', '')
-            root.style.setProperty('--lww-scrim-rgb', scrimRgb())
             root.style.setProperty('--lww-panel-a', alphaValue(next.panelAlpha))
             root.style.setProperty('--lww-panel-b', `${clampInt(next.panelBlur, 0, 40, 0)}px`)
           }
-          if (!disposeTokenLayer) {
-            disposeTokenLayer = theme.overrideTokens(PLUGIN_ID, {
-              '--dsw-alias-bg-base': { light: 'rgba(0,0,0,0)', dark: 'rgba(0,0,0,0)' },
-              '--dsw-specific-sidebar-fill': { light: 'rgba(0,0,0,0)', dark: 'rgba(0,0,0,0)' },
-            })
+          if (!disposeTokenLayer && !tokenLayerRequested) {
+            tokenLayerRequested = true
+            try {
+              disposeTokenLayer = theme.overrideTokens(PLUGIN_ID, {
+                '--dsw-alias-bg-base': { light: 'rgba(0,0,0,0)', dark: 'rgba(0,0,0,0)' },
+                '--dsw-specific-sidebar-fill': { light: 'rgba(0,0,0,0)', dark: 'rgba(0,0,0,0)' },
+              })
+            } finally {
+              tokenLayerRequested = false
+            }
           }
         } catch (error) {
           console.error('[lightweight-wallpaper] could not apply the wallpaper', error)
@@ -992,6 +1040,22 @@ window.__ModuleLoader__.load({
       return found
     }
 
+    /** Split a CSS colour into comparable rgb + alpha; null when unparsable. */
+    function parseColor(value) {
+      const match = /^rgba?\(([^)]+)\)$/.exec(String(value || '').trim())
+      if (!match) return null
+      const parts = match[1].split(',').map((part) => Number(part.trim()))
+      if (parts.length < 3 || parts.slice(0, 3).some((part) => !Number.isFinite(part))) return null
+      const alpha = parts.length > 3 && Number.isFinite(parts[3]) ? parts[3] : 1
+      return { rgb: parts.slice(0, 3).join(','), alpha: Math.round(alpha * 1000) / 1000 }
+    }
+
+    function sameColor(left, right) {
+      const a = parseColor(left)
+      const b = parseColor(right)
+      return Boolean(a && b && a.rgb === b.rgb && Math.abs(a.alpha - b.alpha) < 0.002)
+    }
+
     function collectSelfCheck() {
       const root = document.documentElement
       const pick = (selector) => document.querySelector(selector)
@@ -1006,6 +1070,23 @@ window.__ModuleLoader__.load({
       const bodyStyle = document.body ? getComputedStyle(document.body) : null
       const tokens = {}
       for (const name of tokenNames) tokens[name] = bodyStyle ? bodyStyle.getPropertyValue(name).trim() : ''
+      const bodyDark = document.body ? document.body.hasAttribute('data-ds-dark-theme') : false
+      const wallpaperActive = root.hasAttribute('data-lww-active')
+      const glassActive = root.hasAttribute('data-lww-glass')
+      const serviceSnapshot = (() => {
+        try {
+          return themeRef && typeof themeRef.getTheme === 'function' ? themeRef.getTheme() : null
+        } catch {
+          return null
+        }
+      })()
+      const pseudo = { before: describePseudo(root, '::before'), after: describePseudo(root, '::after') }
+      // What the paint should show for the palette that is live right now. A
+      // stale scrim shows up as matches:false even if nothing else looks wrong.
+      const expectedFloor = `rgba(${bodyDark ? '21,21,23' : '255,255,255'},${alphaValue(state.opacity)})`
+      const declaredFloor = root.style.getPropertyValue('--lww-floor').trim()
+      const expectedTint = bodyDark ? '21,21,23' : '255,255,255'
+      const tint = bodyStyle ? bodyStyle.getPropertyValue('--lww-scrim-rgb').trim() : ''
       const points = [
         [Math.round(innerWidth / 2), Math.round(innerHeight / 2)],
         [Math.round(innerWidth * 0.12), Math.round(innerHeight * 0.5)],
@@ -1041,20 +1122,38 @@ window.__ModuleLoader__.load({
         },
         styleTag: Boolean(document.getElementById('dsh-lightweight-wallpaper-styles')),
         tokens,
+        scheme: {
+          paint: paintScheme,
+          service: schemeOf(serviceSnapshot),
+          bodyDark,
+          colorScheme: root.style.colorScheme || '',
+          themeSource: root.getAttribute('data-ds-theme-source') || '',
+        },
+        scrim: {
+          declared: declaredFloor,
+          computed: pseudo.after ? pseudo.after.bg : '',
+          expected: expectedFloor,
+          matches: wallpaperActive ? sameColor(declaredFloor, expectedFloor) : null,
+        },
+        glassTint: {
+          value: tint,
+          expected: expectedTint,
+          matches: wallpaperActive && glassActive ? tint === expectedTint : null,
+        },
         glassVariables: {
-          scrimRgb: root.style.getPropertyValue('--lww-scrim-rgb').trim(),
           panelAlpha: root.style.getPropertyValue('--lww-panel-a').trim(),
           panelBlur: root.style.getPropertyValue('--lww-panel-b').trim(),
-          floor: root.style.getPropertyValue('--lww-floor').trim(),
+          floor: declaredFloor,
           labelSecondary: bodyStyle ? bodyStyle.getPropertyValue('--dsw-alias-label-secondary').trim() : '',
           labelTertiary: bodyStyle ? bodyStyle.getPropertyValue('--dsw-alias-label-tertiary').trim() : '',
+          labelCaption: bodyStyle ? bodyStyle.getPropertyValue('--dsw-alias-label-caption').trim() : '',
           menuSurfaceFill: bodyStyle ? bodyStyle.getPropertyValue('--dsw-menu-surface-fill').trim() : '',
         },
         glass: Object.fromEntries(GLASS_PROBES.map(([id, selector]) => [id, probeGlass(selector)])),
         composerCard: probeComposerCard(),
         menus: probeMenus(),
         opaqueSurfaces: probeOpaqueSurfaces(),
-        pseudo: { before: describePseudo(root, '::before'), after: describePseudo(root, '::after') },
+        pseudo,
         elements: {
           html: describeElement(root),
           body: describeElement(document.body),
@@ -1658,11 +1757,24 @@ window.__ModuleLoader__.load({
 
       const visual = createVisual(ctx.theme)
       visualApply = visual
+      themeRef = ctx.theme
       ctx.effect(() => () => visual({ ...state, enabled: false }))
-      // The scrim colour follows the active colour scheme.
+      // The scrim colour follows the active colour scheme. The payload is the
+      // authoritative snapshot for this change; the palette attribute on body
+      // belongs to another plugin's presenter and may still hold the old value
+      // when this callback runs, so it is never the source of truth here.
       ctx.effect(() => {
         if (typeof ctx.on !== 'function') return () => {}
-        return ctx.on('theme/change', () => visual(state))
+        return ctx.on('theme/change', (snapshot) => visual(state, snapshot))
+      })
+      // Belt and braces: whichever part of the app flips the palette attribute,
+      // repaint once it has landed (a microtask later, so the DOM is already
+      // updated). This effect writes root attributes only — no feedback loop.
+      ctx.effect(() => {
+        if (typeof MutationObserver !== 'function' || !document.body) return () => {}
+        const observer = new MutationObserver(() => visual(state))
+        observer.observe(document.body, { attributes: true, attributeFilter: ['data-ds-dark-theme'] })
+        return () => observer.disconnect()
       })
 
       const cached = readPaintCache()

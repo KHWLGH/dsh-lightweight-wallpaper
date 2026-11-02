@@ -8,8 +8,9 @@
 - **整窗壁纸**：壁纸铺在最底层，画布与侧栏透出；卡片、弹窗保持实心，文字可读。
 - **毛玻璃**：只给**输入框卡片**和侧栏「新会话」按钮上毛玻璃，两者共用一组浓度/模糊；顶部、底部状态栏与两侧都不覆盖。
 - **四个全局参数**：填充方式（铺满/适应）、整窗遮罩、压暗、壁纸模糊。
-- **浅色对比度开关**：无毛玻璃处的次要灰字（正文、侧栏、底部状态栏）一键加深一档，深色主题不受影响。
+- **浅色对比度开关**：无毛玻璃处的灰字与小字（正文、侧栏、底部状态栏、说明文字）整体加深两档，深色主题不受影响。
 - **弹层可读性**：壁纸开启时，输入框「+」菜单、模型选择等 `MenuSurface` 弹层的材质由官方的 58%/45% 半透明改为接近实心（94%）并加 28px 背景模糊，小字不再糊在壁纸上。
+- **深浅主题同步**：整窗遮罩的颜色取自主题服务的快照（`theme/change` 的载荷 / `getTheme()`），毛玻璃底色由 `body[data-ds-dark-theme]` 的调色板属性在 CSS 里决定，切浅色/深色（含「跟随系统」）不依赖任何脚本时序，也不会出现遮罩停在上一套配色。
 - **每日自动更换**：开启后每次启动取当天的必应每日图并缓存到本地。
 - **本地缓存**：应用过的图片下载到 `$DSH_HOME/lightweight-wallpaper/assets/`，断网也能显示。
 - **设置持久化在宿主**：端口变化、换浏览器都不会丢。
@@ -27,11 +28,13 @@
 | 毛玻璃 | 开 | 输入框卡片 + 「新会话」按钮 |
 | 毛玻璃透明度 | 55% | 0–100%，两处共用；0% 即完全透明 |
 | 毛玻璃模糊 | 24px | 0–40px，两处共用 |
-| 浅色增强文字对比 | 开 | 只加深 `label-secondary` / `label-tertiary` 一档 |
+| 浅色增强文字对比 | 开 | `label-secondary` / `label-tertiary` / `label-caption` 各加深两档 |
 
 实现上只有**一层基础遮罩**：官方容器的 `--dsw-alias-bg-base` / `--dsw-specific-sidebar-fill` 全部置为透明，壁纸与遮罩都由插件自己画。毛玻璃直接画在 `[class*="_composerSeat"] [class*="_card"]` 与 `[class*="_newSession"]` 上，不改 `--dsw-specific-input-major` 之类的全局 token，所以其他卡片不受影响；滑杆值不做任何隐藏加成，所见即所得。效果区右上角有「恢复推荐值」，一键回到上表。
 
-浅色对比：壁纸开启且主题为浅色时，`--dsw-alias-label-secondary` 由 `neutral-bluish-700` 加深到 `750`、`--dsw-alias-label-tertiary` 由 `600` 加深到 `700`（都用官方静态色阶变量），可用开关关闭；深色主题与关闭壁纸时完全不生效。
+浅色对比：壁纸开启且主题为浅色时，`--dsw-alias-label-secondary` 由 `neutral-bluish-700` 加深到 `800`、`--dsw-alias-label-tertiary` 由 `600` 加深到 `750`、`--dsw-alias-label-caption`（小字/状态栏最常用）由 `400` 加深到 `700`（都用官方静态色阶变量），可用开关关闭；深色主题与关闭壁纸时完全不生效。
+
+深浅主题：遮罩颜色（`html::after` 用的 `--lww-floor`）由主题快照推导（`theme/change` 的载荷优先，其次 `ctx.theme.getTheme()`），毛玻璃底色（`--lww-scrim-rgb`）由 CSS 按 `body[data-ds-dark-theme]` 取值。两者都不再靠读 `body` 上的调色板属性去猜当前主题——那个属性是别的插件的 presenter 写的，读它会让重绘时机依赖监听器顺序，切主题时偶尔停在上一套配色。另有一个只观察 `data-ds-dark-theme` 的 `MutationObserver` 兜底：不管属性被谁翻转，落地后都会重画一次。
 
 ## 来源与许可
 
@@ -77,12 +80,14 @@ $DSH_HOME/lightweight-wallpaper/
 
 ## 自检
 
-设置 → 壁纸 → 显示效果右上角 **「自检」**：把当前壁纸层、遮罩层、官方容器（frame / 侧栏 / 内容列 / 输入区 / 新会话按钮）的计算样式、毛玻璃与对比度开关状态、不透明面清单与鼠标位置的元素堆栈写到 `selfcheck.json`。页面每次启动也会自动写一次。
+设置 → 壁纸 → 显示效果右上角 **「自检」**：把当前壁纸层、遮罩层、官方容器（frame / 侧栏 / 内容列 / 输入区 / 新会话按钮）的计算样式、毛玻璃与对比度开关状态、深浅主题一致性（`scheme` / `scrim` / `glassTint`）、不透明面清单与鼠标位置的元素堆栈写到 `selfcheck.json`。页面每次启动也会自动写一次。
 
 排查「壁纸看不到 / 有白边 / 毛玻璃没生效」时先看它：
 - 正常时 `--dsw-alias-bg-base` 与 `--dsw-specific-sidebar-fill` 为 `rgba(0,0,0,0)`，`html::after` 是唯一的基础遮罩，`html::before` 的 `background-image` 指向本地 asset；
 - `composerCard.card.bg` 应带 alpha、`composerCard.backdropFilter` 含 `blur(24px)`；`glass.newSession.element.bg` 应带 alpha；
-- `glassVariables.labelSecondary / labelTertiary` 在浅色 + 对比开关打开时应为 `#43454a` / `#61666b`；
+- `glassVariables.labelSecondary / labelTertiary / labelCaption` 在浅色 + 对比开关打开时应为 `#353638` / `#43454a` / `#61666b`；
+- `scheme.paint` / `scheme.service` / `scheme.colorScheme` 都应与 `scheme.bodyDark` 一致（这是「切换深浅后遮罩没跟上」的直接证据）；
+- `scrim.matches` 与 `glassTint.matches` 在壁纸开启时都应为 `true`：前者比对内联 `--lww-floor` 与当前调色板应有的 `rgba(255,255,255,a)` / `rgba(21,21,23,a)`，后者比对 `--lww-scrim-rgb` 是否为 `255,255,255` / `21,21,23`；
 - `glassVariables.menuSurfaceFill` 在壁纸开启时应为 `#f8f9faf0`（浅）/ `#33343af0`（深）；`menus` 列出当前打开的弹层及其材质背景与 `backdrop-filter`；
 - `opaqueSurfaces` 列出所有面积较大且背景不透明的元素，出现意外条目就是“白块”的源头。
 
@@ -102,7 +107,7 @@ $DSH_HOME/lightweight-wallpaper/
 ```bash
 node --check src/index.js && node --check src/client.js
 node tools/host-smoke.mjs       # 假 ctx + stub fetch，17 项（含毛玻璃参数夹取/兼容）
-node tools/client-contract.mjs  # __ModuleLoader__ 包壳、注册契约、毛玻璃变量与样式表
+node tools/client-contract.mjs  # __ModuleLoader__ 包壳、注册契约、毛玻璃变量、样式表、深浅主题三段兜底
 node tools/probe-sources.mjs    # 真实上游连通性 + 适配器形状
 ```
 

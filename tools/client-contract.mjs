@@ -91,11 +91,17 @@ const effects = []
 const sectionRegistrations = []
 const localeRegistrations = []
 const tokenLayers = []
+const eventListeners = []
+let themeScheme = 'light'
 const fakeCtx = {
   effect(callback) {
     const dispose = callback()
     effects.push(dispose)
     return dispose
+  },
+  on(name, listener) {
+    eventListeners.push({ name, listener })
+    return () => {}
   },
   slots: {
     inject(ownerKey, callback) {
@@ -121,8 +127,17 @@ const fakeCtx = {
     },
   },
   theme: {
+    getTheme() {
+      return { active: { colorScheme: themeScheme } }
+    },
     overrideTokens(source, tokens) {
       tokenLayers.push({ source, tokens })
+      // cordis `emit` is synchronous, so a layer publish re-enters the
+      // theme/change listener before overrideTokens returns. That must not
+      // stack a second layer.
+      for (const entry of eventListeners) {
+        if (entry.name === 'theme/change') entry.listener({ active: { colorScheme: 'light' } })
+      }
       return () => {}
     },
   },
@@ -166,10 +181,55 @@ assert.ok(fakeElement.attrs.has('data-lww-glass'), 'glass must be enabled by def
 // Light theme (no document.body) does not boost anything: 55% stays 55%.
 assert.equal(fakeElement.style.getPropertyValue('--lww-panel-a'), '0.550')
 assert.equal(fakeElement.style.getPropertyValue('--lww-panel-b'), '24px')
-assert.equal(fakeElement.style.getPropertyValue('--lww-scrim-rgb'), '255,255,255')
+// The glass tint is a stylesheet value keyed on the palette attribute; writing
+// it from script is what made a theme switch occasionally paint the old one.
+assert.equal(
+  fakeElement.style.getPropertyValue('--lww-scrim-rgb'),
+  '',
+  'glass tint must come from CSS, never from an inline variable',
+)
 // Light scrim: the slider value only, 62%.
 assert.equal(fakeElement.style.getPropertyValue('--lww-floor'), 'rgba(255,255,255,0.620)')
 assert.ok(fakeElement.attrs.has('data-lww-contrast'), 'light-mode text contrast must be on by default')
+
+/*
+ * Theme switching must not depend on the palette attribute on body: this fake
+ * document has no body at all, so a DOM read would leave the scrim white. The
+ * snapshot handed to `theme/change` is the only thing that may decide.
+ */
+const themeChange = eventListeners.find((entry) => entry.name === 'theme/change')
+assert.ok(themeChange, 'the plugin must subscribe to theme/change')
+themeChange.listener({ active: { colorScheme: 'dark' } })
+assert.equal(
+  fakeElement.style.getPropertyValue('--lww-floor'),
+  'rgba(21,21,23,0.620)',
+  'a dark snapshot must repaint the scrim dark without reading the DOM',
+)
+themeChange.listener({ active: { colorScheme: 'light' } })
+assert.equal(fakeElement.style.getPropertyValue('--lww-floor'), 'rgba(255,255,255,0.620)')
+
+// Second source: a change without a usable payload falls back to getTheme().
+themeScheme = 'dark'
+themeChange.listener(undefined)
+assert.equal(
+  fakeElement.style.getPropertyValue('--lww-floor'),
+  'rgba(21,21,23,0.620)',
+  'theme.getTheme() must be the second source',
+)
+
+// Third source: no payload and no service value — the palette attribute decides.
+themeScheme = ''
+fakeCtx.theme.getTheme = () => ({})
+fakeDocument.body = { hasAttribute: (name) => name === 'data-ds-dark-theme' }
+themeChange.listener(undefined)
+assert.equal(fakeElement.style.getPropertyValue('--lww-floor'), 'rgba(21,21,23,0.620)')
+
+// Healthy again: nothing may stay stuck on the dark scrim.
+fakeDocument.body = undefined
+themeScheme = 'light'
+fakeCtx.theme.getTheme = () => ({ active: { colorScheme: themeScheme } })
+themeChange.listener(undefined)
+assert.equal(fakeElement.style.getPropertyValue('--lww-floor'), 'rgba(255,255,255,0.620)')
 
 const cssText = appended.map((element) => element.textContent).join('\n')
 for (const needle of [
@@ -179,6 +239,8 @@ for (const needle of [
   '_composerHero',
   '_newSession',
   '--lww-panel-a',
+  '--lww-scrim-rgb:255,255,255',
+  '--lww-scrim-rgb:21,21,23',
   '--dsw-alias-label-secondary',
   '--dsw-menu-surface-fill',
   'data-menu-material',
@@ -228,4 +290,6 @@ console.log('PASS  one settings.section registration with a localizable label')
 console.log('PASS  zh + en locale dictionaries registered')
 console.log('PASS  one transparent-token layer once a wallpaper exists')
 console.log('PASS  glass + contrast attributes land on the root with no hidden boost')
+console.log('PASS  glass tint comes from the stylesheet, not from an inline variable')
+console.log('PASS  a dark snapshot repaints the scrim: payload → getTheme() → attribute')
 console.log('PASS  stylesheet carries composer-card, new-session and contrast rules')
