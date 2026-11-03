@@ -1,13 +1,33 @@
 {
   "name": "dsh-lightweight-wallpaper",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "Lightweight wallpaper plugin for DeepSeek Harness: Bing daily, Wikimedia art, Cleveland CC0, and local upload, with paged browsing, recent-used history, cache management, a small cached host proxy and a thumbnail cache.",
   "license": "MIT",
+  "author": "KHWLGH",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/KHWLGH/dsh-lightweight-wallpaper.git"
+  },
+  "homepage": "https://github.com/KHWLGH/dsh-lightweight-wallpaper#readme",
+  "bugs": {
+    "url": "https://github.com/KHWLGH/dsh-lightweight-wallpaper/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "cordis",
+    "wallpaper",
+    "bing"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev": "node tools/dev.mjs",
-    "check": "node tools/host-smoke.mjs && node tools/client-contract.mjs"
+    "check": "node tools/host-smoke.mjs && node tools/client-contract.mjs",
+    "prepublishOnly": "npm run check"
   },
   "exports": {
     ".": "./src/index.js",

@@ -1,15 +1,16 @@
-[简体中文](README.md) | English
+[简体中文](https://github.com/KHWLGH/dsh-lightweight-wallpaper/blob/main/README.md) | English
 
 <div align="center">
 
-<img src="icon.svg" width="96" alt="Lightweight Wallpaper" />
+<img src="https://raw.githubusercontent.com/KHWLGH/dsh-lightweight-wallpaper/main/icon.svg" width="96" alt="Lightweight Wallpaper" />
 
 # dsh-lightweight-wallpaper
 
 **A lightweight wallpaper plugin for DeepSeek Harness: four sources, full-window coverage, cards and dialogs stay solid, and glass only on two surfaces. Zero runtime dependencies, no build step, no bundled images.**
 
-[![version](https://img.shields.io/github/package-json/v/KHWLGH/dsh-lightweight-wallpaper?style=flat-square&label=version)](https://github.com/KHWLGH/dsh-lightweight-wallpaper/blob/main/package.json)
-[![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![npm version](https://img.shields.io/npm/v/dsh-lightweight-wallpaper?style=flat-square&logo=npm&logoColor=white&color=CB3837)](https://www.npmjs.com/package/dsh-lightweight-wallpaper)
+[![npm downloads](https://img.shields.io/npm/dm/dsh-lightweight-wallpaper?style=flat-square&label=downloads&color=CB3837&logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-lightweight-wallpaper)
+[![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](https://github.com/KHWLGH/dsh-lightweight-wallpaper/blob/main/LICENSE)
 [![stars](https://img.shields.io/github/stars/KHWLGH/dsh-lightweight-wallpaper?style=flat-square)](https://github.com/KHWLGH/dsh-lightweight-wallpaper/stargazers)
 [![last commit](https://img.shields.io/github/last-commit/KHWLGH/dsh-lightweight-wallpaper?style=flat-square)](https://github.com/KHWLGH/dsh-lightweight-wallpaper/commits/main)
 [![issues](https://img.shields.io/github/issues/KHWLGH/dsh-lightweight-wallpaper?style=flat-square)](https://github.com/KHWLGH/dsh-lightweight-wallpaper/issues)
@@ -26,7 +27,7 @@
 
 | Light theme | Dark theme |
 | :---: | :---: |
-| ![Light theme](screenshots/lightmode.png) | ![Dark theme](screenshots/darkmode.png) |
+| ![Light theme](https://raw.githubusercontent.com/KHWLGH/dsh-lightweight-wallpaper/main/screenshots/lightmode.png) | ![Dark theme](https://raw.githubusercontent.com/KHWLGH/dsh-lightweight-wallpaper/main/screenshots/darkmode.png) |
 | Claude Monet, *Impression, Sunrise*, 1872 | Vincent van Gogh, *The Starry Night*, 1889 |
 
 ## About
@@ -70,33 +71,69 @@ Settings, images and caches all live under `$DSH_HOME/lightweight-wallpaper/`, s
 
 ## Installation
 
-Pick one of three routes. The first install or enable needs one full Harness restart; after that, code changes reload without a restart — see Development.
+The plugin is an npm bundle: once it is installed into a DSH profile, its configuration layer and client components come online together. The first install or enable needs one full Harness restart; after that, code changes reload without a restart — see Development.
 
-### From GitHub
+`--profile desktop` is the desktop app; the Web / CLI editions usually use `web`. Without a global `dsh` command, run `npx @deepseek-ai/dsh` instead, for example:
+
+```bash
+npx @deepseek-ai/dsh plugin --profile desktop add dsh-lightweight-wallpaper
+```
+
+### From the command line
+
+Pick any of the three sources; the result is the same — only where the package comes from and whether it needs a build approval differ.
+
+#### npm package (recommended)
+
+```bash
+dsh plugin --profile desktop add dsh-lightweight-wallpaper
+```
+
+Pin a version or upgrade:
+
+```bash
+dsh plugin --profile desktop add dsh-lightweight-wallpaper@0.1.0    # pin
+dsh plugin --profile desktop add dsh-lightweight-wallpaper@latest   # upgrade
+```
+
+What the registry ships is already runnable source (plain ESM, zero runtime dependencies, no build step) with no install-time scripts, so pnpm never blocks it and **no `allowBuilds` approval is needed**.
+
+#### GitHub source
 
 ```bash
 dsh plugin --profile desktop add github:KHWLGH/dsh-lightweight-wallpaper
+dsh plugin --profile desktop add github:KHWLGH/dsh-lightweight-wallpaper#<commit>   # pin
 ```
 
-To pin a version, append the commit:
+A Git install fetches the source tree rather than a built artifact, which normally means a `prepare` build plus a pnpm approval; this plugin has neither a build step nor a `prepare` script, so both are skipped. The trade-off is that npm does not resolve its versions — re-run `add` to update.
+
+#### Local directory or tarball
 
 ```bash
-dsh plugin --profile desktop add github:KHWLGH/dsh-lightweight-wallpaper#<commit>
+dsh plugin --profile desktop add "<absolute path to this directory>"   # while editing code
+npm pack                                                              # offline / intranet: pack first
+dsh plugin --profile desktop add ./dsh-lightweight-wallpaper-0.1.0.tgz
 ```
 
-The plugin has no build step and no install-time scripts, so a Git install needs no `allowBuilds` approval.
+A tarball is a prebuilt archive, so it needs no build approval either; check the sha256 first when the file came from an unofficial channel.
 
-### From the Plugin Manager
+### Plugin Manager (graphical)
 
-**Plugins** → **Add plugin**, paste `https://github.com/KHWLGH/dsh-lightweight-wallpaper` (a package name or a local directory path works too) and press Install.
+When only the desktop app is at hand and you would rather not open a terminal: **Plugins** in the sidebar → **Add plugin** in the top right → paste the npm package name `dsh-lightweight-wallpaper`, the repository URL `https://github.com/KHWLGH/dsh-lightweight-wallpaper`, or an absolute local path → **Install**, then **Enable now** if it offers it. It resolves the source and version behind that spec and shows them before installing.
 
-### From a local directory
+### Remove and upgrade
+
+Removal is the same whatever the source:
 
 ```bash
-dsh plugin --profile desktop add "<absolute path to this directory>"
+dsh plugin --profile desktop remove dsh-lightweight-wallpaper
 ```
 
-Remove with `dsh plugin --profile desktop remove dsh-lightweight-wallpaper`; to update, remove and add again (a Git install resolves the latest commit on the default branch). These commands are equivalent to the Plugin Manager actions.
+| Source | Upgrade |
+|---|---|
+| npm package | `dsh plugin --profile desktop add dsh-lightweight-wallpaper@latest` |
+| GitHub source | `add` again (latest commit on the default branch), or remove and add a pinned commit |
+| Local / tarball | remove, then `add` the new path |
 
 ## Usage
 

@@ -1,15 +1,16 @@
-简体中文 | [English](README.en.md)
+简体中文 | [English](https://github.com/KHWLGH/dsh-lightweight-wallpaper/blob/main/README.en.md)
 
 <div align="center">
 
-<img src="icon.svg" width="96" alt="Lightweight Wallpaper" />
+<img src="https://raw.githubusercontent.com/KHWLGH/dsh-lightweight-wallpaper/main/icon.svg" width="96" alt="Lightweight Wallpaper" />
 
 # dsh-lightweight-wallpaper
 
 **给 DeepSeek Harness 的轻量壁纸插件：四种来源、整窗铺满，卡片与弹窗保持实心，毛玻璃只上两处。零运行时依赖、零构建步骤、不打包任何图片。**
 
-[![version](https://img.shields.io/github/package-json/v/KHWLGH/dsh-lightweight-wallpaper?style=flat-square&label=version)](https://github.com/KHWLGH/dsh-lightweight-wallpaper/blob/main/package.json)
-[![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![npm version](https://img.shields.io/npm/v/dsh-lightweight-wallpaper?style=flat-square&logo=npm&logoColor=white&color=CB3837)](https://www.npmjs.com/package/dsh-lightweight-wallpaper)
+[![npm downloads](https://img.shields.io/npm/dm/dsh-lightweight-wallpaper?style=flat-square&label=downloads&color=CB3837&logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-lightweight-wallpaper)
+[![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](https://github.com/KHWLGH/dsh-lightweight-wallpaper/blob/main/LICENSE)
 [![stars](https://img.shields.io/github/stars/KHWLGH/dsh-lightweight-wallpaper?style=flat-square)](https://github.com/KHWLGH/dsh-lightweight-wallpaper/stargazers)
 [![last commit](https://img.shields.io/github/last-commit/KHWLGH/dsh-lightweight-wallpaper?style=flat-square)](https://github.com/KHWLGH/dsh-lightweight-wallpaper/commits/main)
 [![issues](https://img.shields.io/github/issues/KHWLGH/dsh-lightweight-wallpaper?style=flat-square)](https://github.com/KHWLGH/dsh-lightweight-wallpaper/issues)
@@ -26,7 +27,7 @@
 
 | 浅色主题 | 深色主题 |
 | :---: | :---: |
-| ![浅色主题界面](screenshots/lightmode.png) | ![深色主题界面](screenshots/darkmode.png) |
+| ![浅色主题界面](https://raw.githubusercontent.com/KHWLGH/dsh-lightweight-wallpaper/main/screenshots/lightmode.png) | ![深色主题界面](https://raw.githubusercontent.com/KHWLGH/dsh-lightweight-wallpaper/main/screenshots/darkmode.png) |
 | 克劳德·莫奈《印象·日出》，1872 | 文森特·梵高《星空》，1889 |
 
 ## 简介
@@ -70,33 +71,69 @@
 
 ## 安装
 
-三种方式任选其一；首次安装或启用后需要完整重启一次 Harness，之后的代码改动不再需要重启，见「开发（免重启）」。
+插件是一个 npm 组合包（bundle）：装进 DSH 的某个 profile 后，它的配置层与前端组件一起生效。首次安装或启用后需要完整重启一次 Harness；之后的代码改动不再需要重启，见「开发（免重启）」。
 
-### 从 GitHub 安装
+命令里的 `--profile desktop` 对应桌面版，Web / CLI 版通常是 `web`。没有全局 `dsh` 命令时用 `npx @deepseek-ai/dsh` 顶替，例如：
+
+```bash
+npx @deepseek-ai/dsh plugin --profile desktop add dsh-lightweight-wallpaper
+```
+
+### 命令行安装
+
+三条来源任选其一，装完都一样；区别只在包从哪来、要不要构建授权。
+
+#### npm 包（推荐）
+
+```bash
+dsh plugin --profile desktop add dsh-lightweight-wallpaper
+```
+
+锁版本与升级：
+
+```bash
+dsh plugin --profile desktop add dsh-lightweight-wallpaper@0.1.0    # 固定版本
+dsh plugin --profile desktop add dsh-lightweight-wallpaper@latest   # 升级
+```
+
+包里就是可运行的源码（纯 ESM、零运行时依赖、无构建步骤），也没有安装期脚本，pnpm 不会拦你，**不需要 `allowBuilds` 授权**。
+
+#### GitHub 源
 
 ```bash
 dsh plugin --profile desktop add github:KHWLGH/dsh-lightweight-wallpaper
+dsh plugin --profile desktop add github:KHWLGH/dsh-lightweight-wallpaper#<commit>   # 固定提交
 ```
 
-需要固定版本时，在末尾加上 commit：
+Git 源取的是源码树而不是构建产物，通常要先 `prepare` 构建、再由 pnpm 授权；本插件没有构建步骤也没有 `prepare` 脚本，这两步都省了。代价是没有 npm 的版本解析——要升级就重新 `add` 一次。
+
+#### 本地目录或 tarball
 
 ```bash
-dsh plugin --profile desktop add github:KHWLGH/dsh-lightweight-wallpaper#<commit>
+dsh plugin --profile desktop add "<本目录绝对路径>"                    # 改代码时
+npm pack                                                             # 离线 / 内网分发：先打包
+dsh plugin --profile desktop add ./dsh-lightweight-wallpaper-0.1.0.tgz
 ```
 
-本插件没有构建步骤，也不含安装期脚本，Git 源安装不需要额外的 `allowBuilds` 授权。
+tarball 是预构建的压缩包，同样不需要构建授权；从非官方渠道拿到的文件建议先核对 sha256。
 
-### 从 Plugin Manager 安装
+### 插件管理器（图形界面）
 
-左侧「插件」→ 右上角「添加插件」，粘贴仓库地址 `https://github.com/KHWLGH/dsh-lightweight-wallpaper`（也接受包名或本地目录路径），再点「安装」。
+只有桌面版、不想开终端时走这条：侧栏 **插件** → 右上角 **添加插件** → 粘贴 npm 包名 `dsh-lightweight-wallpaper`、仓库地址 `https://github.com/KHWLGH/dsh-lightweight-wallpaper` 或本地绝对路径 → **安装**；需要时再点 **立即启用**。安装前它会读出该 spec 对应的来源与版本给你确认。
 
-### 从本地目录安装
+### 卸载与升级
+
+卸载与安装来源无关：
 
 ```bash
-dsh plugin --profile desktop add "<本目录绝对路径>"
+dsh plugin --profile desktop remove dsh-lightweight-wallpaper
 ```
 
-卸载用 `dsh plugin --profile desktop remove dsh-lightweight-wallpaper`；升级时先卸载再重新 `add`（Git 源会取默认分支的最新提交）。以上命令与 Plugin Manager 里的操作等价。
+| 来源 | 升级 |
+|---|---|
+| npm 包 | `dsh plugin --profile desktop add dsh-lightweight-wallpaper@latest` |
+| GitHub 源 | 重新 `add` 一次（取默认分支最新提交），或先 remove 再 add 固定提交 |
+| 本地 / tarball | 先 remove，再 add 新路径 |
 
 ## 使用
 
