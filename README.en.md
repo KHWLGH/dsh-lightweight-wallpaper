@@ -26,10 +26,8 @@
 
 | Light theme | Dark theme |
 | :---: | :---: |
-| <img src="screenshots/lightmode.png" width="620" alt="Light theme: artwork wallpaper fills the window, the composer card and the New session button are glass, cards and popovers stay solid" /> | <img src="screenshots/darkmode.png" width="620" alt="Dark theme: The Starry Night fills the window, the sidebar and canvas show it through, and the scrim and glass follow the dark theme" /> |
-| **Light theme** · Artwork shows through; the composer card is glass | **Dark theme** · *The Starry Night*; scrim and glass follow the theme |
-
-Screenshots of the main screen (v0.1.0, Windows desktop); images render at 620px wide, click to open the original.
+| ![Light theme](screenshots/lightmode.png) | ![Dark theme](screenshots/darkmode.png) |
+| Claude Monet, *Impression, Sunrise*, 1872 | Vincent van Gogh, *The Starry Night*, 1889 |
 
 ## About
 
