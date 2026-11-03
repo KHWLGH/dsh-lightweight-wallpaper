@@ -173,8 +173,7 @@ npm run dev     # = node tools/dev.mjs: node --check plus the matching test on s
 npm run check   # run host-smoke + client-contract by hand
 ```
 
-- `src/impl.js` imports `sources.js` with the same `?rev=`, so editing `sources.js` hot-reloads too; when a host reload fails, the previous generation keeps serving and only a warning is logged.
-- The version stays at **0.1.0** during development; it is not bumped for every change (the plugin card shows it).
+`src/impl.js` imports `sources.js` with the same `?rev=`, so editing `sources.js` hot-reloads too; when a host reload fails, the previous generation keeps serving and only a warning is logged.
 
 ## Verification
 

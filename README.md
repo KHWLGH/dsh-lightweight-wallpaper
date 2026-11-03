@@ -173,8 +173,7 @@ npm run dev     # = node tools/dev.mjs：保存即 node --check + 跑对应测�
 npm run check   # 手动跑 host-smoke + client-contract
 ```
 
-- `src/impl.js` 用同一个 `?rev=` 动态导入 `sources.js`，所以改 `sources.js` 也会跟着热重载；宿主重载失败时保留上一代继续服务，只在插件日志里 warn。
-- 版本号开发期固定在 **0.1.0**，不随每次改动递增（插件卡片显示的就是它）。
+`src/impl.js` 用同一个 `?rev=` 动态导入 `sources.js`，所以改 `sources.js` 也会跟着热重载；宿主重载失败时保留上一代继续服务，只在插件日志里 warn。
 
 ## 验证
 
