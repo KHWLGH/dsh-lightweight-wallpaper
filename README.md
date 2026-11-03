@@ -9,7 +9,7 @@
 **给 DeepSeek Harness 的轻量壁纸插件：四种来源、整窗铺满，卡片与弹窗保持实心，毛玻璃只上两处。零运行时依赖、零构建步骤、不打包任何图片。**
 
 [![version](https://img.shields.io/github/package-json/v/KHWLGH/dsh-lightweight-wallpaper?style=flat-square&label=version)](https://github.com/KHWLGH/dsh-lightweight-wallpaper/blob/main/package.json)
-[![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](#许可证)
+[![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![stars](https://img.shields.io/github/stars/KHWLGH/dsh-lightweight-wallpaper?style=flat-square)](https://github.com/KHWLGH/dsh-lightweight-wallpaper/stargazers)
 [![last commit](https://img.shields.io/github/last-commit/KHWLGH/dsh-lightweight-wallpaper?style=flat-square)](https://github.com/KHWLGH/dsh-lightweight-wallpaper/commits/main)
 [![issues](https://img.shields.io/github/issues/KHWLGH/dsh-lightweight-wallpaper?style=flat-square)](https://github.com/KHWLGH/dsh-lightweight-wallpaper/issues)
@@ -70,13 +70,33 @@
 
 ## 安装
 
-本仓库就是一个可直接安装的 bundle 目录：
+三种方式任选其一；首次安装或启用后需要完整重启一次 Harness，之后的代码改动不再需要重启，见「开发（免重启）」。
+
+### 从 GitHub 安装
+
+```bash
+dsh plugin --profile desktop add github:KHWLGH/dsh-lightweight-wallpaper
+```
+
+需要固定版本时，在末尾加上 commit：
+
+```bash
+dsh plugin --profile desktop add github:KHWLGH/dsh-lightweight-wallpaper#<commit>
+```
+
+本插件没有构建步骤，也不含安装期脚本，Git 源安装不需要额外的 `allowBuilds` 授权。
+
+### 从 Plugin Manager 安装
+
+左侧「插件」→ 右上角「添加插件」，粘贴仓库地址 `https://github.com/KHWLGH/dsh-lightweight-wallpaper`（也接受包名或本地目录路径），再点「安装」。
+
+### 从本地目录安装
 
 ```bash
 dsh plugin --profile desktop add "<本目录绝对路径>"
 ```
 
-也可以在 Plugin Manager 里选择本地目录安装。首次安装或启用需要完整重启一次 Harness；之后的代码改动不再需要重启，见「开发（免重启）」。
+卸载用 `dsh plugin --profile desktop remove dsh-lightweight-wallpaper`；升级时先卸载再重新 `add`（Git 源会取默认分支的最新提交）。以上命令与 Plugin Manager 里的操作等价。
 
 ## 使用
 
@@ -214,7 +234,7 @@ src/index.js     宿主入口 shim：保持注册层稳定，监听下面两个�
 src/impl.js      Host：同源路由、分页参数、历史记录、缓存统计与清理、上游 / 列表 / 缩略图缓存、图片代理、state 落盘
 src/sources.js   纯函数：三个源的 URL 构造（含分页）、分页元信息、缩略图宽度、响应归一化
 src/client.js    Client：壁纸层 + 整窗遮罩 + 毛玻璃、设置页（本地壁纸 / 缓存管理）、自检
-tools/           冒烟测试、契约检查、连通性探针与开发循环（不随包发布）
+tools/           冒烟测试、契约检查、连通性探针与开发循环（开发用，不参与插件运行）
 ```
 
 ## 许可证

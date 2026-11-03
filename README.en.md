@@ -9,7 +9,7 @@
 **A lightweight wallpaper plugin for DeepSeek Harness: four sources, full-window coverage, cards and dialogs stay solid, and glass only on two surfaces. Zero runtime dependencies, no build step, no bundled images.**
 
 [![version](https://img.shields.io/github/package-json/v/KHWLGH/dsh-lightweight-wallpaper?style=flat-square&label=version)](https://github.com/KHWLGH/dsh-lightweight-wallpaper/blob/main/package.json)
-[![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](#license)
+[![license](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 [![stars](https://img.shields.io/github/stars/KHWLGH/dsh-lightweight-wallpaper?style=flat-square)](https://github.com/KHWLGH/dsh-lightweight-wallpaper/stargazers)
 [![last commit](https://img.shields.io/github/last-commit/KHWLGH/dsh-lightweight-wallpaper?style=flat-square)](https://github.com/KHWLGH/dsh-lightweight-wallpaper/commits/main)
 [![issues](https://img.shields.io/github/issues/KHWLGH/dsh-lightweight-wallpaper?style=flat-square)](https://github.com/KHWLGH/dsh-lightweight-wallpaper/issues)
@@ -70,13 +70,33 @@ Settings, images and caches all live under `$DSH_HOME/lightweight-wallpaper/`, s
 
 ## Installation
 
-This repository is a bundle directory you can install directly:
+Pick one of three routes. The first install or enable needs one full Harness restart; after that, code changes reload without a restart — see Development.
+
+### From GitHub
+
+```bash
+dsh plugin --profile desktop add github:KHWLGH/dsh-lightweight-wallpaper
+```
+
+To pin a version, append the commit:
+
+```bash
+dsh plugin --profile desktop add github:KHWLGH/dsh-lightweight-wallpaper#<commit>
+```
+
+The plugin has no build step and no install-time scripts, so a Git install needs no `allowBuilds` approval.
+
+### From the Plugin Manager
+
+**Plugins** → **Add plugin**, paste `https://github.com/KHWLGH/dsh-lightweight-wallpaper` (a package name or a local directory path works too) and press Install.
+
+### From a local directory
 
 ```bash
 dsh plugin --profile desktop add "<absolute path to this directory>"
 ```
 
-You can also pick the local directory in the Plugin Manager. The first install or enable needs one full Harness restart; after that, code changes reload without a restart — see Development.
+Remove with `dsh plugin --profile desktop remove dsh-lightweight-wallpaper`; to update, remove and add again (a Git install resolves the latest commit on the default branch). These commands are equivalent to the Plugin Manager actions.
 
 ## Usage
 
@@ -214,7 +234,7 @@ src/index.js     host entry shim: keeps the registration layer stable, watches t
 src/impl.js      host: same-origin routes, paging parameters, history, cache stats and clearing, upstream / list / thumbnail caches, image proxy, state persistence
 src/sources.js   pure functions: URL builders for the three sources (with paging), paging metadata, thumbnail widths, response normalization
 src/client.js    client: wallpaper layer + window scrim + glass, the settings page (local wallpapers / cache manager) and the self-check
-tools/           smoke tests, contract checks, a connectivity probe and the dev loop (not shipped with the bundle)
+tools/           smoke tests, contract checks, a connectivity probe and the dev loop (development only, not part of the running plugin)
 ```
 
 ## License
