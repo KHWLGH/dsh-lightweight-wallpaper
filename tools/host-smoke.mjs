@@ -18,7 +18,7 @@ const home = await mkdtemp(join(tmpdir(), 'lww-smoke-'))
 process.env.DSH_HOME = home
 
 const { apply, normalizeState } = await import('../src/index.js')
-const { standardThumbWidth, thumbUrl } = await import('../src/sources.js')
+const { isAllowedRemote, standardThumbWidth, tenwallpaperPagination, thumbUrl } = await import('../src/sources.js')
 
 /** Build one Host instance with its own route table (all instances share DSH_HOME). */
 function createHarness() {
@@ -386,6 +386,126 @@ await step('/art page=1 paginates Commons with gsroffset and Cleveland with skip
     const cmaUrl = new URL(cmaRequest)
     assert.equal(cmaUrl.searchParams.get('skip'), '24')
     assert.equal(cmaUrl.searchParams.get('limit'), '24')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+/* ------------------------------------------------------------------------- */
+/* Site source: 10wallpaper                                                  */
+/* ------------------------------------------------------------------------- */
+
+const tenwallpaperHtml = (cells, last, prefix, attribute = 'alt') =>
+  `${Array.from(
+    { length: cells },
+    (_, index) =>
+      `<a href="/view/Probe_${index}.html" target="_blanck"><img src="/wallpaper/medium/2611/Probe_${index}_medium.jpg" ${attribute}="Probe ${index} Views:${index}" width="400" height="225" class="hor"></a>`,
+  ).join('')}<a href="/${prefix}/page/2">2</a><a href="/${prefix}/page/${last}">${last}</a>`
+
+await step('/art source=tenwallpaper parses list, category and search HTML', async () => {
+  const requests = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    requests.push(url)
+    let html
+    if (url.includes('/search/empty')) html = '<html><body>no wallpapers</body></html>'
+    else if (url.includes('/search/space')) html = tenwallpaperHtml(12, 70, 'search/space')
+    else if (url.includes('/Landscape_wallpaper')) html = tenwallpaperHtml(20, 801, 'Landscape_wallpaper', 'title')
+    else html = tenwallpaperHtml(12, 7053, 'List_wallpapers')
+    return new Response(html, { status: 200, headers: { 'content-type': 'text/html' } })
+  }
+  try {
+    const list = await call('GET', `${P}/art?source=tenwallpaper&page=0`)
+    assert.equal(list.statusCode, 200)
+    const body = list.json()
+    assert.equal(body.source, 'tenwallpaper')
+    assert.equal(body.limit, 12)
+    assert.equal(body.total, 7053 * 12)
+    assert.equal(body.hasMore, true)
+    assert.equal(body.items.length, 12)
+    assert.equal(body.items[0].title, 'Probe 0')
+    assert.ok(body.items[0].full.includes('/wallpaper/3840x2160/'))
+    assert.ok(
+      body.items[0].fallbacks.some((url) => url.includes('/1920x1080/') && url.endsWith('_1920x1080.jpg')),
+      'the 1080p fallback must use the site variant path',
+    )
+    const listRequest = new URL(requests[0])
+    assert.equal(listRequest.pathname, '/List_wallpapers.html')
+
+    const second = await call('GET', `${P}/art?source=tenwallpaper&page=1`)
+    assert.equal(second.json().page, 1)
+    assert.equal(new URL(requests[1]).pathname, '/List_wallpapers/page/2')
+
+    const category = await call('GET', `${P}/art?source=tenwallpaper&cat=Landscape&page=0`)
+    assert.equal(category.statusCode, 200)
+    assert.equal(category.json().limit, 20)
+    assert.equal(category.json().total, 801 * 20)
+    assert.equal(category.json().items.length, 20)
+    assert.equal(category.json().items[0].title, 'Probe 0', 'category pages use the img title attribute')
+    assert.equal(new URL(requests[2]).pathname, '/Landscape_wallpaper.html')
+
+    const search = await call('GET', `${P}/art?source=tenwallpaper&q=space&page=1`)
+    assert.equal(search.statusCode, 200)
+    assert.equal(search.json().limit, 12)
+    assert.equal(search.json().total, 70 * 12)
+    assert.equal(new URL(requests[3]).pathname, '/search/space/page/2')
+
+    const empty = await call('GET', `${P}/art?source=tenwallpaper&q=empty&page=0`)
+    assert.equal(empty.statusCode, 200)
+    assert.deepEqual(empty.json().items, [])
+    assert.equal(empty.json().hasMore, false)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+await step('10wallpaper degrades to an empty stale payload, not the museum fallback', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => {
+    throw new Error('offline')
+  }
+  try {
+    const tenwallpaper = await call('GET', `${P}/art?source=tenwallpaper&q=offline-probe&page=0`)
+    assert.equal(tenwallpaper.statusCode, 200)
+    assert.equal(tenwallpaper.json().ok, false)
+    assert.equal(tenwallpaper.json().stale, true)
+    assert.deepEqual(tenwallpaper.json().items, [])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+await step('10wallpaper pagination counts the last page even without a self link', () => {
+  const paging = tenwallpaperPagination('<a href="/List_wallpapers/page/7052">7052</a>', 12, 7052)
+  assert.deepEqual(paging, { lastPage: 7052, hasMore: false, total: 84636 })
+})
+
+await step('10wallpaper host is allowlisted and normalizeState keeps the source', async () => {
+  for (const host of ['10wallpaper.com', 'www.10wallpaper.com']) {
+    assert.equal(isAllowedRemote(`https://${host}/x.jpg`), true, `${host} should be allowed`)
+  }
+  assert.equal(isAllowedRemote('https://imageai.zzzmh.cn/x.webp'), false, 'the removed zzzmh host must be rejected')
+  assert.equal(isAllowedRemote('https://images.alphacoders.com/x.jpg'), false)
+  const asset = `/api/lightweight-wallpaper/asset/${'c'.repeat(40)}.jpg`
+  assert.equal(normalizeState({ wallpaper: { asset, source: 'zzzmh' } }).wallpaper.source, 'upload')
+  assert.equal(normalizeState({ wallpaper: { asset, source: 'tenwallpaper' } }).wallpaper.source, 'tenwallpaper')
+})
+
+await step('POST /pin accepts a 10wallpaper image host', async () => {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () =>
+    new Response(jpeg, { status: 200, headers: { 'content-type': 'image/jpeg' } })
+  try {
+    const res = await call('POST', `${P}/pin`, {
+      headers: HEADERS,
+      body: JSON.stringify({
+        url: 'https://10wallpaper.com/wallpaper/3840x2160/2611/Probe_3840x2160.jpg',
+        source: 'tenwallpaper',
+      }),
+    })
+    assert.equal(res.statusCode, 200)
+    assert.equal(res.json().source, 'tenwallpaper')
   } finally {
     globalThis.fetch = originalFetch
   }

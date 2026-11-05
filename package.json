@@ -1,8 +1,8 @@
 {
   "name": "dsh-lightweight-wallpaper",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
-  "description": "Lightweight wallpaper plugin for DeepSeek Harness: Bing daily, Wikimedia art, Cleveland CC0, and local upload, with paged browsing, recent-used history, cache management, a small cached host proxy and a thumbnail cache.",
+  "description": "Lightweight wallpaper and font plugin for DeepSeek Harness: Bing daily, Wikimedia art, Cleveland CC0, 10wallpaper, and local upload, with paged browsing, recent-used history, cache management, system font pickers for the interface, code and terminal, a small cached host proxy and a thumbnail cache.",
   "license": "MIT",
   "author": "KHWLGH",
   "repository": {
@@ -19,7 +19,9 @@
     "deepseek-harness",
     "cordis",
     "wallpaper",
-    "bing"
+    "font",
+    "bing",
+    "10wallpaper"
   ],
   "publishConfig": {
     "access": "public"
@@ -42,7 +44,8 @@
     "locale/*.json",
     "icon.svg",
     "README.md",
-    "README.en.md"
+    "README.en.md",
+    "CHANGELOG.md"
   ],
   "dsh": {
     "bundle": {

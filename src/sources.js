@@ -18,12 +18,42 @@ export const ALLOWED_HOSTS = new Set([
   'commons.wikimedia.org',
   'openaccess-api.clevelandart.org',
   'openaccess-cdn.clevelandart.org',
+  '10wallpaper.com',
+  'www.10wallpaper.com',
 ])
 
 export const BING_MARKETS = ['zh-CN', 'en-US', 'ja-JP', 'en-GB']
-export const ART_SOURCES = ['wikimedia', 'cleveland']
+export const ART_SOURCES = ['wikimedia', 'cleveland', 'tenwallpaper']
+
+/**
+ * 10wallpaper has fixed upstream page sizes: list/search pages carry 12 cells
+ * and category pages 20. `ART_LIMIT_MAX` (Host) only applies to the two museum
+ * APIs, which take an explicit `limit`.
+ */
+export const TENWALLPAPER_PAGE_SIZE = 12
+export const TENWALLPAPER_CATEGORY_PAGE_SIZE = 20
+
+/**
+ * Category pages that are safe to surface as chips. The site also ships
+ * `People`, `Plants`, `Moive` (sic), `Sports`, … — the global list mixes all of
+ * them, but the picker only offers the neutral ones; anything else stays one
+ * search away and is never presented as a default feed.
+ */
+export const TENWALLPAPER_CATEGORIES = [
+  'Landscape',
+  'Game',
+  'City',
+  'Space',
+  'Animal',
+  'Design',
+  'Photography',
+]
+
+/** 10wallpaper serves 22 fixed variants by path; the plugin uses the 4K one. */
+export const TENWALLPAPER_FULL_VARIANT = '3840x2160'
 
 const BING_ORIGIN = 'https://www.bing.com'
+const TENWALLPAPER_ORIGIN = 'https://10wallpaper.com'
 
 /* ------------------------------------------------------------------------ */
 /* Small text helpers                                                       */
@@ -247,6 +277,115 @@ export function parseCleveland(payload) {
     })
   }
   return items
+}
+
+/* ------------------------------------------------------------------------ */
+/* 10wallpaper                                                              */
+/* ------------------------------------------------------------------------ */
+
+function tenwallpaperCategory(cat) {
+  return TENWALLPAPER_CATEGORIES.includes(String(cat ?? '')) ? String(cat) : ''
+}
+
+/** Escape a search term the way the site's URL routing expects (spaces → _). */
+function tenwallpaperSearchSlug(query) {
+  return encodeURIComponent(String(query).trim().replace(/\s+/g, '_'))
+}
+
+/**
+ * 10wallpaper has no API: list, category and search pages are plain HTML. The
+ * first page has no `/page/1` suffix; page N (0-based) is upstream page N+1.
+ */
+export function tenwallpaperRequestUrl(options = {}) {
+  const page = Math.max(Math.round(Number(options.page) || 0), 0)
+  const query = String(options.q ?? '').trim()
+  const category = tenwallpaperCategory(options.cat)
+  if (query) {
+    return page > 0
+      ? `${TENWALLPAPER_ORIGIN}/search/${tenwallpaperSearchSlug(query)}/page/${page + 1}`
+      : `${TENWALLPAPER_ORIGIN}/search/${tenwallpaperSearchSlug(query)}/`
+  }
+  if (category) {
+    return page > 0
+      ? `${TENWALLPAPER_ORIGIN}/${category}_wallpaper/page/${page + 1}`
+      : `${TENWALLPAPER_ORIGIN}/${category}_wallpaper.html`
+  }
+  return page > 0
+    ? `${TENWALLPAPER_ORIGIN}/List_wallpapers/page/${page + 1}`
+    : `${TENWALLPAPER_ORIGIN}/List_wallpapers.html`
+}
+
+/**
+ * Rewrite the medium thumbnail path into one of the 22 fixed resolution
+ * variants the site keeps side by side (e.g. 3840x2160). No API: the variant
+ * is literally a replacement of two path segments.
+ */
+export function tenwallpaperVariantUrl(mediumPath, variant = TENWALLPAPER_FULL_VARIANT) {
+  const path = String(mediumPath ?? '')
+  if (!path) return ''
+  return `${TENWALLPAPER_ORIGIN}${path
+    .replace('/wallpaper/medium/', `/wallpaper/${variant}/`)
+    .replace(/_medium\.jpg$/, `_${variant}.jpg`)}`
+}
+
+/**
+ * Parse a list/category/search wall. Every cell is
+ * `<a href="/view/<Slug>.html"><img src="/wallpaper/medium/<YYMM>/<Slug>_medium.jpg" …>`.
+ * The human title sits in `alt` on list/search pages but in `title` on category
+ * pages, and it is followed by a view counter; the slug is a stable fallback.
+ */
+export function parseTenwallpaper(html) {
+  const items = []
+  const source = String(html ?? '')
+  const pattern =
+    /<a href="(\/view\/[^"]+)\.html"[^>]*>\s*<img src="(\/wallpaper\/medium\/(\d{4})\/[^"]+?_medium\.jpg)"[^>]*?(?:alt|title)="([^"]*)"/g
+  for (const match of source.matchAll(pattern)) {
+    const [, viewPath, mediumPath, , rawAlt] = match
+    const slug = viewPath.split('/').pop() || ''
+    if (!slug || !mediumPath) continue
+    const title = clip(stripHtml(rawAlt).replace(/\s*Views:\s*\d+\s*$/i, ''), 160)
+    items.push({
+      id: slug,
+      source: 'tenwallpaper',
+      title: title || slug.replace(/_/g, ' '),
+      credit: '10wallpaper.com',
+      license: '© 原作者 · 仅个人使用',
+      page: `${TENWALLPAPER_ORIGIN}${viewPath}.html`,
+      thumb: `${TENWALLPAPER_ORIGIN}${mediumPath}`,
+      full: tenwallpaperVariantUrl(mediumPath),
+      fallbacks: ['2560x1440', '1920x1080', '1366x768'].map((variant) =>
+        tenwallpaperVariantUrl(mediumPath, variant),
+      ),
+      width: 3840,
+      height: 2160,
+    })
+  }
+  return items
+}
+
+/** Highest page number linked on the wall (site reports it in the pager). */
+export function tenwallpaperLastPage(html) {
+  let last = 0
+  for (const match of String(html ?? '').matchAll(
+    /\/(?:List_wallpapers|search\/[^"/]+|[A-Za-z]+_wallpaper)\/page\/(\d+)"/g,
+  )) {
+    const page = Number(match[1]) || 0
+    if (page > last) last = page
+  }
+  return last
+}
+
+/** Derive hasMore/total from the pager; the site has no total field of its own. */
+export function tenwallpaperPagination(html, pageSize, page) {
+  const lastPage = tenwallpaperLastPage(html)
+  const size = Math.max(Number(pageSize) || 0, 1)
+  // On the very last page the pager no longer links its own number, so the
+  // current page is the best lower bound we have for the total.
+  return {
+    lastPage,
+    hasMore: lastPage > 0 ? page + 1 < lastPage : false,
+    total: lastPage > 0 ? Math.max(lastPage, page + 1) * size : 0,
+  }
 }
 
 /* ------------------------------------------------------------------------ */

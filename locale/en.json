@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Lightweight Wallpaper",
-    "description": "Set the Harness window wallpaper from Bing daily images, Wikimedia Commons art or Cleveland Museum CC0 works — or upload your own. The art tab ships 8 painter and movement presets on a single row with paging, thumbnails and result lists are cached locally, up to 20 local wallpapers (downloaded or uploaded) can be re-applied in one click, cache usage can be inspected and cleared, and fill, window scrim, dim and blur are adjustable, with adjustable glass for the composer card and the New session button plus a one-switch light-mode text contrast boost."
+    "description": "Set the Harness window wallpaper from Bing daily images, Wikimedia Commons art, Cleveland Museum CC0 works or 10wallpaper — or upload your own. The art tab ships 8 painter and movement presets on a single row, the Wallpaper sites tab adds 10wallpaper category chips and search, thumbnails and result lists are cached locally, up to 20 local wallpapers (downloaded or uploaded) can be re-applied in one click, cache usage can be inspected and cleared, and fill, window scrim, dim and blur are adjustable, with adjustable glass for the composer card and the New session button plus a one-switch light-mode text contrast boost. The settings page also has a Fonts group for picking the interface font, the code font and the terminal font from installed system fonts; the code font also drives code blocks and the file preview/editor, and the terminal font drives the sidebar terminal."
   }
 }

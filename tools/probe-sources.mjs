@@ -1,5 +1,5 @@
 /**
- * Live source probe — proves the three upstream sources answer from THIS machine
+ * Live source probe — proves the wallpaper sources answer from THIS machine
  * and that the adapters normalize what they return.
  *
  *   node tools/probe-sources.mjs
@@ -18,7 +18,10 @@ import {
   paginationOf,
   parseBing,
   parseCleveland,
+  parseTenwallpaper,
   parseWikimedia,
+  tenwallpaperLastPage,
+  tenwallpaperRequestUrl,
   wikimediaRequestUrl,
 } from '../src/sources.js'
 
@@ -46,6 +49,16 @@ async function getJson(url, timeout = 30_000) {
   })
   assert.equal(response.status, 200, `GET ${url} -> ${response.status}`)
   return response.json()
+}
+
+/** HTML sibling of getJson, used by the 10wallpaper source. */
+async function getText(url, timeout = 30_000) {
+  const response = await fetch(url, {
+    signal: AbortSignal.timeout(timeout),
+    headers: { 'user-agent': UA, accept: 'text/html,application/xhtml+xml' },
+  })
+  assert.equal(response.status, 200, `GET ${url} -> ${response.status}`)
+  return response.text()
 }
 
 /** JSON fetch with retries; pagination probes use this so CDN flakiness is not a FAIL. */
@@ -91,14 +104,33 @@ async function probeImage(url, attempts = 1) {
   throw lastError
 }
 
+/** HEAD-only check for larger variants (the 4K files are never downloaded here). */
+async function probeImageHead(url) {
+  assert.ok(isAllowedRemote(url), `not allowlisted: ${url}`)
+  const response = await fetch(url, {
+    method: 'HEAD',
+    signal: AbortSignal.timeout(30_000),
+    headers: { 'user-agent': UA, accept: 'image/*' },
+  })
+  assert.equal(response.status, 200, `HEAD ${url} -> ${response.status}`)
+  const type = String(response.headers.get('content-type') || '')
+  assert.ok(type.startsWith('image/'), `content-type ${type}`)
+  const bytes = Number(response.headers.get('content-length')) || 0
+  assert.ok(bytes > 50_000, `only ${bytes} bytes`)
+  return `${type.split('/')[1]} ${Math.round(bytes / 1024)} KB`
+}
+
 console.log('== allowlist ==')
 assert.equal(isAllowedRemote('https://www.bing.com/th?id=x_UHD.jpg'), true)
 assert.equal(isAllowedRemote('https://upload.wikimedia.org/x.jpg'), true)
+assert.equal(isAllowedRemote('https://10wallpaper.com/wallpaper/x.jpg'), true)
+assert.equal(isAllowedRemote('https://www.10wallpaper.com/wallpaper/x.jpg'), true)
 assert.equal(isAllowedRemote('http://www.bing.com/th?id=x'), false, 'http must be rejected')
+assert.equal(isAllowedRemote('https://images.alphacoders.com/x.jpg'), false)
 assert.equal(isAllowedRemote('https://evil.example.com/x.jpg'), false)
 const userinfoUrl = 'https://' + 'user' + ':' + 'pw' + '@www.bing.com/x.jpg'
 assert.equal(isAllowedRemote(userinfoUrl), false)
-console.log('PASS  allowlist accepts https bing/wikimedia/cleveland only')
+console.log('PASS  allowlist accepts only the supported wallpaper source hosts')
 
 console.log('\n== Bing daily ==')
 let bingItem = null
@@ -151,6 +183,23 @@ if (cmaItem) {
   await timed('Cleveland large JPEG', () => probeImage(cmaItem.full, 2))
 }
 
+console.log('\n== 10wallpaper ==')
+let tenwallpaperItem = null
+await timed('10wallpaper list + normalize', async () => {
+  const html = await getText(tenwallpaperRequestUrl({ page: 0 }))
+  const items = parseTenwallpaper(html)
+  assert.ok(items.length >= 1, 'no items parsed')
+  tenwallpaperItem = items[0]
+  assert.ok(tenwallpaperItem.full.includes('/wallpaper/3840x2160/'), tenwallpaperItem.full)
+  const lastPage = tenwallpaperLastPage(html)
+  assert.ok(lastPage > 1, `last page ${lastPage}`)
+  return `${items.length} items; last page ${lastPage}; first: ${tenwallpaperItem.title}`
+})
+if (tenwallpaperItem) {
+  await timed('10wallpaper thumbnail', () => probeImage(tenwallpaperItem.thumb, 2))
+  await timed('10wallpaper 4K HEAD', () => probeImageHead(tenwallpaperItem.full))
+}
+
 console.log('\n== Pagination (network failures are recorded, never thrown) ==')
 await timed('Commons page 2 differs from page 1 (gsroffset=24)', async () => {
   const first = parseWikimedia(await getJsonRetry(wikimediaRequestUrl('Van Gogh paintings', 6)))
@@ -175,6 +224,19 @@ await timed('Cleveland page 2 differs from page 1 (skip=24)', async () => {
   const { hasMore, total } = paginationOf('cleveland', payload, { limit: 6, offset: 24 })
   assert.ok(total > 0, `total=${total}`)
   return `page1=${first[0].title} | page2=${second[0].title} | total=${total} | hasMore=${hasMore}`
+})
+
+await timed('10wallpaper page 2 differs and the pager exposes the last page', async () => {
+  const firstHtml = await getText(tenwallpaperRequestUrl({ page: 0 }))
+  const secondHtml = await getText(tenwallpaperRequestUrl({ page: 1 }))
+  const first = parseTenwallpaper(firstHtml)
+  const second = parseTenwallpaper(secondHtml)
+  assert.ok(first.length >= 1, 'page 1 returned nothing')
+  assert.ok(second.length >= 1, 'page 2 returned nothing')
+  assert.notEqual(first[0].id, second[0].id, 'page 2 repeated the first page')
+  const lastPage = tenwallpaperLastPage(firstHtml)
+  assert.ok(lastPage > 1, `last page ${lastPage}`)
+  return `page1=${first[0].title} | page2=${second[0].title} | last=${lastPage}`
 })
 
 await timed('Bing page 2 is older than page 1 (idx=8)', async () => {

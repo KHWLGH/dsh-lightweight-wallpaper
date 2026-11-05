@@ -2,13 +2,13 @@
  * dsh-lightweight-wallpaper — Host half.
  *
  * Owns the small same-origin API the Client half talks to, so the browser never
- * calls Bing, Wikimedia or Cleveland directly (CORS, CSP, hotlink rules and
- * offline caching all live here):
+ * calls Bing, Wikimedia, Cleveland or 10wallpaper directly (CORS, CSP, hotlink
+ * rules and offline caching all live here):
  *
  *   GET  /api/lightweight-wallpaper/state
  *   POST /api/lightweight-wallpaper/state            { state }
  *   GET  /api/lightweight-wallpaper/bing?mkt&n&page
- *   GET  /api/lightweight-wallpaper/art?source&q&limit&page
+ *   GET  /api/lightweight-wallpaper/art?source&q&cat&limit&page
  *   POST /api/lightweight-wallpaper/pin              { url, fallbacks, ... }
  *   POST /api/lightweight-wallpaper/upload           raw image bytes
  *   GET  /api/lightweight-wallpaper/asset/<sha1>.<ext>
@@ -39,7 +39,11 @@ import { join, resolve } from 'node:path'
  */
 const REV = new URL(import.meta.url).searchParams.get('rev') || ''
 const {
+  ART_SOURCES,
   FALLBACK_ART,
+  TENWALLPAPER_CATEGORIES,
+  TENWALLPAPER_CATEGORY_PAGE_SIZE,
+  TENWALLPAPER_PAGE_SIZE,
   UA,
   bingRequestUrl,
   clevelandRequestUrl,
@@ -47,7 +51,10 @@ const {
   paginationOf,
   parseBing,
   parseCleveland,
+  parseTenwallpaper,
   parseWikimedia,
+  tenwallpaperPagination,
+  tenwallpaperRequestUrl,
   thumbUrl,
   wikimediaRequestUrl,
 } = await import(`./sources.js${REV ? `?rev=${REV}` : ''}`)
@@ -76,8 +83,14 @@ const ART_TTL = 30 * 60 * 1000
 const FETCH_TIMEOUT = 20_000
 
 /** Paging: /art walks one upstream page at a time, /bing expands by eight days. */
-const ART_PAGE_MAX = 40
+const ART_PAGE_MAX = {
+  wikimedia: 40,
+  cleveland: 40,
+  // 7053 live pages today; the route also stops on `hasMore`, this is only a guard.
+  tenwallpaper: 10000,
+}
 const ART_LIMIT_MAX = 32
+const ART_DEFAULT_LIMIT = 24
 const BING_PAGE_MAX = 1
 const BING_PAGE_SIZE = 8
 
@@ -101,7 +114,7 @@ const THUMB_WIDTH_MIN = 20
 const THUMB_WIDTH_MAX = 3840
 
 const MARKETS = new Set(['zh-CN', 'en-US', 'ja-JP', 'en-GB'])
-const SOURCES = new Set(['bing', 'wikimedia', 'cleveland', 'upload', 'local'])
+const SOURCES = new Set(['bing', 'wikimedia', 'cleveland', 'tenwallpaper', 'upload', 'local'])
 const FITS = new Set(['cover', 'contain'])
 
 export const DEFAULT_STATE = Object.freeze({
@@ -457,6 +470,29 @@ export function apply(ctx) {
       return result
     })
     return response.json()
+  }
+
+  /**
+   * Fetch an allowlisted HTML document. 10wallpaper's list/category/search
+   * pages are plain HTML (no JSON API), so they need text instead of
+   * `response.json()`. The final URL is returned too: the 10wallpaper IIS
+   * answers unknown paths with a 302 to `error404.html`, and following that
+   * redirect must not masquerade as a valid empty page.
+   */
+  async function fetchText(startUrl, timeout = 25_000) {
+    const url = String(startUrl)
+    if (!isAllowedRemote(url)) throw httpError(400, 'URL_NOT_ALLOWED', `not allowed: ${url}`)
+    const response = await withRetry(async () => {
+      const result = await fetch(url, {
+        signal: AbortSignal.timeout(timeout),
+        headers: { 'user-agent': UA, accept: 'text/html,application/xhtml+xml' },
+      })
+      if (!result.ok) throw httpError(502, 'UPSTREAM_STATUS', `upstream ${result.status}`)
+      return result
+    })
+    const finalUrl = response.url || url
+    const text = await response.text()
+    return { text, finalUrl }
   }
 
   /* ---------------------------------------------------------------------- */
@@ -918,13 +954,28 @@ export function apply(ctx) {
       handler: guard(async (req, res) => {
         if (!methodIs(req, res, 'GET')) return
         const url = new URL(req.url ?? '/', 'http://localhost')
-        const source = url.searchParams.get('source') === 'cleveland' ? 'cleveland' : 'wikimedia'
+        const requestedSource = String(url.searchParams.get('source') ?? '')
+        const source = ART_SOURCES.includes(requestedSource) ? requestedSource : 'wikimedia'
         const query = clipString(url.searchParams.get('q') ?? '', 120).trim()
-        if (!query) throw httpError(400, 'MISSING_QUERY', 'q is required')
-        const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 24, 1), ART_LIMIT_MAX)
-        const page = clampNumber(url.searchParams.get('page'), 0, ART_PAGE_MAX, 0)
+        const cat = clipString(url.searchParams.get('cat') ?? '', 40).trim()
+        const siteSource = source === 'tenwallpaper'
+        if (!query && !siteSource) throw httpError(400, 'MISSING_QUERY', 'q is required')
+        const requestedLimit = Math.min(
+          Math.max(Number(url.searchParams.get('limit')) || ART_DEFAULT_LIMIT, 1),
+          ART_LIMIT_MAX,
+        )
+        // 10wallpaper has fixed upstream page sizes; only the museum APIs honour
+        // the client's `limit`.
+        const limit =
+          source === 'tenwallpaper'
+            ? !query && TENWALLPAPER_CATEGORIES.includes(cat)
+              ? TENWALLPAPER_CATEGORY_PAGE_SIZE
+              : TENWALLPAPER_PAGE_SIZE
+            : requestedLimit
+        const pageMax = ART_PAGE_MAX[source] ?? ART_PAGE_MAX.wikimedia
+        const page = clampNumber(url.searchParams.get('page'), 0, pageMax, 0)
         const offset = page * limit
-        const key = `${source}|${query}|${limit}|${page}`
+        const key = `${source}|${query}|${cat}|${limit}|${page}`
         const cached = artCache.get(key)
         if (cached && Date.now() - cached.at < ART_TTL) {
           return sendJson(res, 200, {
@@ -939,15 +990,27 @@ export function apply(ctx) {
           })
         }
         try {
-          const payload =
-            source === 'cleveland'
-              ? await fetchJson(clevelandRequestUrl(query, limit, offset))
-              : await fetchJson(wikimediaRequestUrl(query, limit, offset), 25_000)
-          const items = source === 'cleveland' ? parseCleveland(payload) : parseWikimedia(payload)
-          const paging = paginationOf(source, payload, { limit, offset })
-          // The last page the API accepts must not advertise another one, or the
-          // client would request `page + 1`, get clamped back here and loop.
-          const hasMore = paging.hasMore && page < ART_PAGE_MAX
+          let items
+          let paging
+          if (source === 'tenwallpaper') {
+            const { text, finalUrl } = await fetchText(tenwallpaperRequestUrl({ page, q: query, cat }))
+            if (/error404/i.test(finalUrl)) {
+              throw httpError(502, 'UPSTREAM_NOT_FOUND', `upstream redirected to ${finalUrl}`)
+            }
+            items = parseTenwallpaper(text)
+            paging = tenwallpaperPagination(text, limit, page)
+          } else if (source === 'cleveland') {
+            const payload = await fetchJson(clevelandRequestUrl(query, limit, offset))
+            items = parseCleveland(payload)
+            paging = paginationOf(source, payload, { limit, offset })
+          } else {
+            const payload = await fetchJson(wikimediaRequestUrl(query, limit, offset), 25_000)
+            items = parseWikimedia(payload)
+            paging = paginationOf(source, payload, { limit, offset })
+          }
+          // The last page the upstream accepts must not advertise another one,
+          // or the client would request `page + 1`, get clamped back here and loop.
+          const hasMore = paging.hasMore && page < pageMax
           const total = paging.total
           const entry = { at: Date.now(), items, hasMore, total }
           artCache.set(key, entry)
@@ -1287,7 +1350,7 @@ export function apply(ctx) {
           artEntries: Object.keys(artDiskNow.entries).length,
           enabled: state.enabled,
           hasWallpaper: Boolean(state.wallpaper),
-          upstream: ['bing', 'wikimedia', 'cleveland'],
+          upstream: ['bing', 'wikimedia', 'cleveland', 'tenwallpaper'],
         })
       }),
     }),

@@ -69,6 +69,7 @@ const fakeLocalStorage = { getItem: () => null, setItem: () => {}, removeItem: (
 
 const requireStub = (name) => {
   if (name === 'react') return ReactStub
+  if (name === 'react-dom') return { createPortal: (node) => node }
   throw new Error(`unexpected require(${name})`)
 }
 
@@ -178,6 +179,11 @@ try {
 /* Glass surfaces: one material on the root, applied by data attributes only. */
 assert.ok(fakeElement.attrs.has('data-lww-active'), 'wallpaper must activate the paint layer')
 assert.ok(fakeElement.attrs.has('data-lww-glass'), 'glass must be enabled by default')
+assert.equal(
+  fakeElement.attrs.has('data-lww-blur'),
+  false,
+  'blur(0px) must not create the full-screen filter layer',
+)
 // Light theme (no document.body) does not boost anything: 55% stays 55%.
 assert.equal(fakeElement.style.getPropertyValue('--lww-panel-a'), '0.550')
 assert.equal(fakeElement.style.getPropertyValue('--lww-panel-b'), '24px')
@@ -235,6 +241,7 @@ const cssText = appended.map((element) => element.textContent).join('\n')
 for (const needle of [
   'data-lww-glass',
   'data-lww-contrast',
+  'data-lww-blur',
   '_composerSeat',
   '_composerHero',
   '_newSession',
@@ -244,6 +251,19 @@ for (const needle of [
   '--dsw-alias-label-secondary',
   '--dsw-menu-surface-fill',
   'data-menu-material',
+  '--dsw-font:var(--dsw-font-family)',
+  '--dsw-font-mono:var(--ds-font-family-code)',
+  'html[data-lww-active][data-lww-blur]::before',
+  '_card"]::before',
+  'isolation:isolate',
+  'backdrop-filter:none!important',
+  '.lww-font-pop',
+  '.lww-font-pop-head',
+  '.lww-font-trigger',
+  '.lww-font-preview-code',
+  '.lww-font-preview-terminal',
+  '.lww-font-option-sample',
+  'overscroll-behavior:contain',
 ]) {
   assert.ok(cssText.includes(needle), `stylesheet must carry ${needle}`)
 }
@@ -253,6 +273,25 @@ assert.ok(
   fakeWindow.__dshLightweightWallpaper && typeof fakeWindow.__dshLightweightWallpaper.check === 'function',
   'self-check hook must be exposed on window',
 )
+for (const needle of [
+  'queryLocalFonts',
+  'setFontFamily',
+  'function FontCard',
+  'function FontPicker',
+  "role: 'terminal'",
+  "popover: 'manual'",
+  'panelRef.current.contains(target)',
+]) {
+  assert.ok(code.includes(needle), `client must carry ${needle} for the font card`)
+}
+const fontsApi = fakeWindow.__dshLightweightWallpaper.fonts
+assert.ok(fontsApi && typeof fontsApi.clean === 'function', 'font helpers must be exposed for the contract test')
+assert.equal(fontsApi.clean('  "Microsoft YaHei"  '), 'Microsoft YaHei')
+assert.equal(fontsApi.css('Segoe UI'), '"Segoe UI"')
+assert.equal(fontsApi.css('sans-serif'), 'sans-serif')
+assert.equal(fontsApi.label('"Microsoft YaHei", sans-serif', 'System default'), 'Microsoft YaHei')
+assert.deepEqual(fontsApi.merge(['A', 'a', 'B'], 'B'), ['B', 'A'], 'merge keeps the current font first and dedupes')
+assert.equal(fontsApi.list('"Fira Code", monospace'), '"Fira Code", monospace')
 
 assert.equal(sectionRegistrations.length, 1, 'exactly one settings.section registration')
 assert.equal(sectionRegistrations[0].options.id, 'lightweight-wallpaper')
@@ -276,6 +315,32 @@ assert.deepEqual(
 )
 for (const registration of localeRegistrations) {
   for (const key of ['panel.title', 'panel.alpha', 'panel.blur', 'panel.off', 'contrast.title', 'contrast.hint']) {
+    assert.ok(registration.dict[key], `${registration.locale} dictionary is missing ${key}`)
+  }
+  for (const key of [
+    'group.fonts',
+    'font.title',
+    'font.ui',
+    'font.code',
+    'font.terminal',
+    'font.previewTerminal',
+    'font.default',
+    'font.reset',
+    'font.search',
+    'font.loading',
+    'font.fallback',
+    'font.denied',
+    'font.custom',
+    'font.current',
+    'font.unavailable',
+    'font.note',
+    'font.retry',
+    'font.sample',
+    'font.systemSource',
+    'font.fallbackSource',
+    'font.noMatch',
+    'font.clearSearch',
+  ]) {
     assert.ok(registration.dict[key], `${registration.locale} dictionary is missing ${key}`)
   }
 }
@@ -390,20 +455,21 @@ assert.ok(code.includes('function formatBytes'), 'cache sizes must be formatted 
 assert.ok(!code.includes('history.missing'), 'there is no history.missing state in the client')
 
 /*
- * Merged picker: recently used is the first AND default tab, the three upstream
- * sources follow behind a hairline, the standalone history card is gone, and the
- * picker never auto-jumps away from the history tab.
+ * Merged picker: recently used is the first AND default tab, the four upstream
+ * source groups follow behind a hairline, the standalone history card is gone,
+ * and the picker never auto-jumps away from the history tab.
  */
 const tabKeys = [
   "['history', props.t('history.title')]",
   "['bing', props.t('source.bing')]",
   "['art', props.t('source.art')]",
+  "['sites', props.t('source.sites')]",
   "['custom', props.t('source.custom')]",
 ]
 const tabPositions = tabKeys.map((needle) => code.indexOf(needle))
 assert.ok(
   tabPositions.every((position) => position >= 0),
-  'SourceTabs must declare history + the three sources',
+  'SourceTabs must declare history + bing + art + sites + custom',
 )
 assert.deepEqual(
   [...tabPositions].sort((a, b) => a - b),
@@ -412,6 +478,26 @@ assert.deepEqual(
 )
 assert.ok(code.includes("useState('history')"), 'the picker opens on the recently-used tab')
 assert.ok(code.includes("id === 'bing'"), 'the sources must be separated from the history tab')
+assert.ok(code.includes('function SitesPanel'), 'the wallpaper sites need their own panel')
+assert.ok(code.includes("tab === 'sites'"), 'the sites tab must render SitesPanel')
+assert.ok(code.includes('TENWALLPAPER_PRESETS'), 'the 10wallpaper chips must be declared explicitly')
+for (const registration of localeRegistrations) {
+  for (const key of [
+    'source.sites',
+    'site.search',
+    'site.note.tenwallpaper',
+    'source.name.tenwallpaper',
+    'site.tenwallpaper.landscape',
+    'site.tenwallpaper.game',
+  ]) {
+    assert.ok(registration.dict[key], `${registration.locale} dictionary is missing ${key}`)
+  }
+  assert.equal(
+    registration.dict['site.note.zzzmh'],
+    undefined,
+    'the removed zzzmh source must not keep locale strings',
+  )
+}
 assert.ok(cssText.includes('.lww-tab-sep'), 'stylesheet must carry the tab separator')
 assert.ok(!code.includes('HistoryCard'), 'the standalone history card must be gone')
 assert.ok(!code.includes('onEmpty'), 'the picker must not fall back to a source tab when history is empty')
@@ -445,6 +531,7 @@ for (const needle of [
 }
 for (const rule of [
   '[data-lww-nav]>svg',
+  '[data-lww-nav] [class*="_navIcon"]{display:none!important}',
   'mask-image',
   'data:image/svg+xml',
   '.lww-group',
@@ -516,4 +603,6 @@ console.log('PASS  art presets, pager strings and small-thumbnail proxy requests
 console.log('PASS  recent-list + cache manager: i18n, endpoints, epoch and history grid')
 console.log('PASS  merged picker: recently-used first tab, sources behind a separator')
 console.log('PASS  settings nav icon decoration + grouped, aligned layout classes')
+console.log('PASS  font card: system lookup, official setFontFamily, code/terminal bridge')
+console.log('PASS  composer glass lives on an isolated pseudo-element (hover-safe)')
 console.log('PASS  local library (20, uploads included) + 16px nav glyph geometry')

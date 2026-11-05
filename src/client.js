@@ -16,6 +16,7 @@ window.__ModuleLoader__.load({
   id: 'dsh-lightweight-wallpaper',
   factory: (require) => {
     const React = require('react')
+    const { createPortal } = require('react-dom')
     const h = React.createElement
     const { useCallback, useEffect, useMemo, useRef, useState } = React
 
@@ -73,6 +74,157 @@ window.__ModuleLoader__.load({
       if (bytes < 1024) return `${Math.round(bytes)} B`
       if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
       return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Font families                                                      */
+    /* ------------------------------------------------------------------ */
+
+    /** CSS generic families stay unquoted in a font-family list. */
+    const GENERIC_FONTS = new Set([
+      'serif', 'sans-serif', 'monospace', 'cursive', 'fantasy', 'system-ui',
+      'ui-serif', 'ui-sans-serif', 'ui-monospace', 'ui-rounded', 'emoji', 'math',
+      'fangsong', '-apple-system', 'blinkmacsystemfont',
+    ])
+
+    /** Fallback rows when the Local Font Access API is unavailable or denied. */
+    const COMMON_UI_FONTS = [
+      'Segoe UI', 'Microsoft YaHei', 'PingFang SC', 'Hiragino Sans GB',
+      'Noto Sans CJK SC', 'Source Han Sans SC', 'SimSun', 'SimHei',
+      'DengXian', 'Segoe UI Variable', 'Helvetica Neue', 'Arial',
+      'Inter', 'Roboto',
+    ]
+    const COMMON_CODE_FONTS = [
+      'Cascadia Code', 'Consolas', 'JetBrains Mono', 'Fira Code',
+      'Source Code Pro', 'SF Mono', 'Menlo', 'Courier New',
+      'Sarasa Mono SC', 'LXGW WenKai Mono', 'Maple Mono', 'IBM Plex Mono',
+      'Microsoft YaHei', 'PingFang SC',
+    ]
+
+    /** One session cache; a denied prompt is not repeated on every open. */
+    let fontListCache = null
+    let fontListPromise = null
+
+    function cleanFontName(value) {
+      return String(value || '')
+        .replace(/["'\\<>\u0000-\u001f\u007f]/gu, '')
+        .replace(/\s+/gu, ' ')
+        .trim()
+    }
+
+    function cssFontName(name) {
+      const clean = cleanFontName(name)
+      if (!clean) return ''
+      return GENERIC_FONTS.has(clean.toLowerCase()) ? clean : `"${clean}"`
+    }
+
+    /** A custom entry may be a comma-separated list; preview it as CSS too. */
+    function cssFontList(value) {
+      return String(value || '')
+        .split(',')
+        .map(cleanFontName)
+        .filter(Boolean)
+        .map(cssFontName)
+        .join(', ')
+    }
+
+    /** First family of a normalized list, for the trigger label. */
+    function fontLabel(value, fallback) {
+      const names = String(value || '')
+        .split(',')
+        .map(cleanFontName)
+        .filter(Boolean)
+      return names.length ? names[0] : fallback
+    }
+
+    function firstFontName(value) {
+      return fontLabel(value, '').toLowerCase()
+    }
+
+    /** Dedupe, keeping the current family first so it is always visible. */
+    function mergeFonts(fonts, current) {
+      const out = []
+      const seen = new Set()
+      const add = (name) => {
+        const clean = cleanFontName(name)
+        if (!clean) return
+        const key = clean.toLowerCase()
+        if (seen.has(key)) return
+        seen.add(key)
+        out.push(clean)
+      }
+      for (const name of String(current || '').split(',')) add(name)
+      for (const font of Array.isArray(fonts) ? fonts : []) add(font)
+      return out
+    }
+
+    function commonFonts() {
+      return mergeFonts([...COMMON_UI_FONTS, ...COMMON_CODE_FONTS]).sort((a, b) => a.localeCompare(b))
+    }
+
+    function resetFontListCache() {
+      fontListCache = null
+      fontListPromise = null
+    }
+
+    /**
+     * Read the machine's font families through Chromium's Local Font Access
+     * API. Called from a click so the permission prompt has a user gesture.
+     * A timeout keeps a silently blocked prompt from wedging the picker; any
+     * failure falls back to the common list and the custom-name entry.
+     */
+    async function fetchSystemFonts() {
+      if (fontListCache) return fontListCache
+      if (fontListPromise) return fontListPromise
+      fontListPromise = (async () => {
+        let names = []
+        let error = ''
+        let apiFailed = null
+        try {
+          if (typeof window !== 'undefined' && typeof window.queryLocalFonts === 'function') {
+            let timer = 0
+            const timeout = new Promise((resolve) => {
+              timer = setTimeout(() => resolve(null), 8000)
+            })
+            const api = Promise.resolve()
+              .then(() => window.queryLocalFonts())
+              .catch((err) => {
+                apiFailed = err
+                return null
+              })
+            let fonts = null
+            try {
+              fonts = await Promise.race([api, timeout])
+            } finally {
+              clearTimeout(timer)
+            }
+            if (apiFailed) throw apiFailed
+            if (Array.isArray(fonts) && fonts.length) {
+              names = fonts.map((font) => (font && font.family ? font.family : '')).filter(Boolean)
+            } else if (fonts === null) {
+              error = 'timeout'
+            } else {
+              error = 'empty'
+            }
+          } else {
+            error = 'unavailable'
+          }
+        } catch (err) {
+          error = 'denied'
+          console.warn('[lightweight-wallpaper] could not read system fonts', err)
+        }
+        const source = names.length ? 'system' : 'fallback'
+        fontListCache = {
+          fonts: names.length
+            ? mergeFonts(names).sort((a, b) => a.localeCompare(b))
+            : commonFonts(),
+          source,
+          error,
+        }
+        fontListPromise = null
+        return fontListCache
+      })()
+      return fontListPromise
     }
 
     /** Language tag used for the relative timestamps of the recent list. */
@@ -179,18 +331,59 @@ window.__ModuleLoader__.load({
       { id: 'klimt', label: 'preset.klimt', query: 'Gustav Klimt painting' },
     ]
 
+    /**
+     * 10wallpaper's chip row: one entry per fixed category page. `cat` is the
+     * upstream URL slug; an empty value means the global newest list.
+     */
+    const TENWALLPAPER_PRESETS = [
+      { id: 'tenwallpaper-landscape', label: 'site.tenwallpaper.landscape', cat: 'Landscape' },
+      { id: 'tenwallpaper-latest', label: 'site.tenwallpaper.latest', cat: '' },
+      { id: 'tenwallpaper-game', label: 'site.tenwallpaper.game', cat: 'Game' },
+      { id: 'tenwallpaper-city', label: 'site.tenwallpaper.city', cat: 'City' },
+      { id: 'tenwallpaper-space', label: 'site.tenwallpaper.space', cat: 'Space' },
+      { id: 'tenwallpaper-animal', label: 'site.tenwallpaper.animal', cat: 'Animal' },
+      { id: 'tenwallpaper-design', label: 'site.tenwallpaper.design', cat: 'Design' },
+    ]
+
     const DICTS = {
       zh: {
-        'nav.title': '壁纸',
-        'page.title': '壁纸与背景',
-        'page.desc': '从必应每日图、维基共享艺术或克利夫兰 CC0 馆藏里选一张，也可以上传本地图片。壁纸会铺在窗口最底层，画布与侧栏按下方滑杆透出。',
+        'nav.title': '壁纸与字体',
+        'page.title': '壁纸、字体与背景',
         'enable': '启用壁纸',
         'group.wallpaper': '壁纸',
         'group.display': '显示',
         'group.data': '数据',
+        'group.fonts': '字体',
+        'font.title': '界面、代码与终端字体',
+        'font.ui': '界面字体',
+        'font.code': '代码字体',
+        'font.terminal': '终端字体',
+        'font.default': '系统默认',
+        'font.reset': '恢复默认',
+        'font.preview': '预览',
+        'font.previewUi': '界面字体预览 Aa 字体',
+        'font.previewCode': 'const code = 1',
+        'font.previewTerminal': '$ dsh --version',
+        'font.sample': 'Aa 永',
+        'font.systemSource': '系统字体',
+        'font.fallbackSource': '常见字体',
+        'font.noMatch': '没有匹配的字体，按 Enter 使用输入值。',
+        'font.clearSearch': '清除搜索',
+        'font.search': '搜索字体…',
+        'font.loading': '正在读取系统字体…',
+        'font.fallback': '当前环境无法列出系统字体：可从常见字体中选择，或直接输入字体名。',
+        'font.denied': '没有获得字体访问权限：可从常见字体中选择，或直接输入字体名。',
+        'font.custom': '使用「{name}」',
+        'font.current': '当前',
+        'font.unavailable': '当前 DSH 版本不支持从插件写入字体，请在 设置 → 通用 → 更多字体设置 中修改。',
+        'font.note': '字体列表来自本机，不会上传；选择写入 DSH 的 ui-theme 设置，与「设置 → 通用 → 更多字体设置」同步。',
+        'font.loadFailed': '读取系统字体失败：{message}',
+        'font.retry': '重新读取',
+        'font.bothDefault': '界面、代码和终端字体已恢复默认。',
         'source.title': '选择壁纸',
         'source.bing': '必应每日',
         'source.art': '艺术馆藏',
+        'source.sites': '壁纸站',
         'source.custom': '上传',
         'bing.market': '地区',
         'bing.refresh': '刷新',
@@ -199,7 +392,15 @@ window.__ModuleLoader__.load({
         'art.cleveland': '克利夫兰（CC0）',
         'art.search': '搜索画家、作品或流派…',
         'art.searchBtn': '搜索',
-        'art.note': '搜索结果来自对应馆藏接口，每页 24 张可翻页，缩略图缓存在本地。',
+        'site.search': '搜索 10wallpaper 关键词…',
+        'site.note.tenwallpaper': '10wallpaper 的图片收集自互联网，版权归原作者；仅供个人使用，请勿商用。默认取 4K（3840×2160）。',
+        'site.tenwallpaper.latest': '最新',
+        'site.tenwallpaper.landscape': '风景',
+        'site.tenwallpaper.game': '游戏',
+        'site.tenwallpaper.city': '城市',
+        'site.tenwallpaper.space': '太空',
+        'site.tenwallpaper.animal': '动物',
+        'site.tenwallpaper.design': '设计',
         'custom.pick': '选择图片',
         'custom.hint': '支持 JPEG / PNG / WebP，超过 6MB 会先压到最长边 2560 再上传。',
         'custom.current': '当前自定义图片',
@@ -210,7 +411,6 @@ window.__ModuleLoader__.load({
         'effect.dim': '压暗',
         'effect.blur': '壁纸模糊',
         'effect.opacity': '整窗遮罩',
-        'effect.hint': '整窗遮罩铺满整个窗口，越低壁纸越明显；卡片、弹窗与代码块始终实心。',
         'effect.reset': '恢复推荐值',
         'effect.selfcheck': '自检',
         'panel.title': '毛玻璃与透明',
@@ -218,7 +418,6 @@ window.__ModuleLoader__.load({
         'panel.enable': '启用毛玻璃',
         'panel.alpha': '毛玻璃透明度',
         'panel.blur': '毛玻璃模糊',
-        'panel.hint': '两者共用同一组浓度与模糊；透明度 0% 时完全透明。',
         'panel.off': '毛玻璃已关闭：输入框与「新会话」按钮恢复实心。',
         'contrast.title': '浅色模式增强文字对比',
         'contrast.hint': '没有毛玻璃的地方（正文、侧栏、底部状态栏）把次要灰字加深一档，浅色主题下更清楚；深色主题不受影响。',
@@ -231,6 +430,7 @@ window.__ModuleLoader__.load({
         'source.name.bing': '必应每日',
         'source.name.wikimedia': '维基共享',
         'source.name.cleveland': '克利夫兰',
+        'source.name.tenwallpaper': '10wallpaper',
         'source.name.upload': '本地上传',
         'source.name.local': '本地',
         'loading': '加载中…',
@@ -272,16 +472,43 @@ window.__ModuleLoader__.load({
         'cache.never': '暂无缓存',
       },
       en: {
-        'nav.title': 'Wallpaper',
-        'page.title': 'Wallpaper & background',
-        'page.desc': 'Pick a Bing daily image, a public-domain artwork from Wikimedia Commons or a CC0 work from the Cleveland Museum of Art — or upload your own. The wallpaper sits behind the whole window; the canvas and sidebar reveal it through the sliders below.',
+        'nav.title': 'Wallpaper & fonts',
+        'page.title': 'Wallpaper, fonts & background',
         'enable': 'Enable wallpaper',
         'group.wallpaper': 'Wallpaper',
         'group.display': 'Display',
         'group.data': 'Data',
+        'group.fonts': 'Fonts',
+        'font.title': 'Interface, code & terminal fonts',
+        'font.ui': 'Interface font',
+        'font.code': 'Code font',
+        'font.terminal': 'Terminal font',
+        'font.default': 'System default',
+        'font.reset': 'Reset',
+        'font.preview': 'Preview',
+        'font.previewUi': 'Interface font preview Aa',
+        'font.previewCode': 'const code = 1',
+        'font.previewTerminal': '$ dsh --version',
+        'font.sample': 'Aa Aa',
+        'font.systemSource': 'System fonts',
+        'font.fallbackSource': 'Common fonts',
+        'font.noMatch': 'No matching font — press Enter to use the typed name.',
+        'font.clearSearch': 'Clear search',
+        'font.search': 'Search fonts…',
+        'font.loading': 'Reading system fonts…',
+        'font.fallback': 'This environment cannot list system fonts. Pick a common font below or type a family name.',
+        'font.denied': 'Font access was not granted. Pick a common font below or type a family name.',
+        'font.custom': 'Use “{name}”',
+        'font.current': 'Current',
+        'font.unavailable': 'This DSH version does not expose font writes to plugins. Use Settings → General → More font settings instead.',
+        'font.note': 'The font list stays on this machine and is never uploaded; choices are written to DSH’s ui-theme settings, in sync with Settings → General → More font settings.',
+        'font.loadFailed': 'Could not read system fonts: {message}',
+        'font.retry': 'Reload',
+        'font.bothDefault': 'Interface, code and terminal fonts are back to defaults.',
         'source.title': 'Choose a wallpaper',
         'source.bing': 'Bing daily',
         'source.art': 'Museum art',
+        'source.sites': 'Wallpaper sites',
         'source.custom': 'Upload',
         'bing.market': 'Region',
         'bing.refresh': 'Refresh',
@@ -290,7 +517,15 @@ window.__ModuleLoader__.load({
         'art.cleveland': 'Cleveland Museum (CC0)',
         'art.search': 'Search an artist, work or movement…',
         'art.searchBtn': 'Search',
-        'art.note': 'Results come from the selected museum API; 24 images per page with paging, thumbnails are cached locally.',
+        'site.search': 'Search 10wallpaper…',
+        'site.note.tenwallpaper': '10wallpaper collects images from the internet; copyright remains with the original authors. Personal use only, no commercial use. Default download is 4K (3840×2160).',
+        'site.tenwallpaper.latest': 'Newest',
+        'site.tenwallpaper.landscape': 'Landscape',
+        'site.tenwallpaper.game': 'Game',
+        'site.tenwallpaper.city': 'City',
+        'site.tenwallpaper.space': 'Space',
+        'site.tenwallpaper.animal': 'Animal',
+        'site.tenwallpaper.design': 'Design',
         'custom.pick': 'Choose image',
         'custom.hint': 'JPEG / PNG / WebP. Files over 6MB are downscaled to 2560px before upload.',
         'custom.current': 'Current custom image',
@@ -301,7 +536,6 @@ window.__ModuleLoader__.load({
         'effect.dim': 'Dim',
         'effect.blur': 'Wallpaper blur',
         'effect.opacity': 'Window scrim',
-        'effect.hint': 'The window scrim covers the whole window; lower values reveal more wallpaper. Cards, dialogs and code stay solid.',
         'effect.reset': 'Reset to recommended',
         'effect.selfcheck': 'Self-check',
         'panel.title': 'Glass & transparency',
@@ -309,7 +543,6 @@ window.__ModuleLoader__.load({
         'panel.enable': 'Enable glass',
         'panel.alpha': 'Glass opacity',
         'panel.blur': 'Glass blur',
-        'panel.hint': 'Both share one opacity and one blur; 0% opacity makes them fully transparent.',
         'panel.off': 'Glass is off: the composer and the New session button are solid again.',
         'contrast.title': 'Boost text contrast in light mode',
         'contrast.hint': 'Where there is no glass (transcript, sidebar, bottom status bar) the secondary greys step one shade darker so they read better in the light theme; the dark theme is untouched.',
@@ -322,6 +555,7 @@ window.__ModuleLoader__.load({
         'source.name.bing': 'Bing daily',
         'source.name.wikimedia': 'Wikimedia Commons',
         'source.name.cleveland': 'Cleveland Museum',
+        'source.name.tenwallpaper': '10wallpaper',
         'source.name.upload': 'Upload',
         'source.name.local': 'Local',
         'loading': 'Loading…',
@@ -365,11 +599,21 @@ window.__ModuleLoader__.load({
     }
 
     const CSS = `
+      /* Official components still read the legacy --dsw-font / --dsw-font-mono
+         names; the file-preview code body is one of them. Point both at the
+         live text/code stacks so the font picker and the official font fields
+         reach every code surface. Not gated on data-lww-active: fonts keep
+         working when the wallpaper is off. */
+      html body{
+        --dsw-font:var(--dsw-font-family),sans-serif;
+        --dsw-font-mono:var(--ds-font-family-code),ui-monospace,SFMono-Regular,Menlo,monospace}
       html[data-lww-active]::before{content:"";position:fixed;inset:-3rem;z-index:-1;pointer-events:none;
         background-image:linear-gradient(rgba(0,0,0,var(--lww-dim,0)),rgba(0,0,0,var(--lww-dim,0))),
           var(--lww-image,none);
-        background-position:center;background-size:var(--lww-fit,cover);background-repeat:no-repeat;
-        filter:blur(var(--lww-blur,0px))}
+        background-position:center;background-size:var(--lww-fit,cover);background-repeat:no-repeat}
+      /* A full-screen blur(0px) still creates a filter/compositing layer; only
+         pay for it when the slider is actually above zero. */
+      html[data-lww-active][data-lww-blur]::before{filter:blur(var(--lww-blur,0px))}
       html[data-lww-active]::after{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
         background-color:var(--lww-floor,transparent)}
       html[data-lww-active] body{background-color:transparent!important}
@@ -404,16 +648,29 @@ window.__ModuleLoader__.load({
          on ONE surface: the input card itself. The dock around it, the
          conversation header, the full-width bottom row and the sidebars are
          deliberately left alone, so no tint reaches the left/right sides.
-         The card is tinted directly instead of through
-         --dsw-specific-input-major, so other cards keep their own surface.
-         Selectors match the official CSS-module class suffixes
-         (<hash>_localName); a build hash change keeps them working.
+         The material lives on a pseudo-element rather than the card: the
+         card's send button has a background-color hover transition, and a
+         backdrop-filter on the card itself makes Chromium re-rasterize the
+         whole glass layer on that repaint (a visible flash). A dedicated
+         negative-z layer inside an isolated stacking context is stable and
+         still accepts the panel's border-radius. Selectors match the official
+         CSS-module class suffixes (<hash>_localName); a build hash change
+         keeps them working.
          ================================================================== */
       html[data-lww-glass] [class*="_composerSeat"] [class*="_card"],
       html[data-lww-glass] [class*="_composerHero"] [class*="_card"]{
-        background-color:rgba(var(--lww-scrim-rgb,255,255,255),var(--lww-panel-a,0))!important;
+        position:relative;isolation:isolate;
+        background-color:transparent!important;
+        -webkit-backdrop-filter:none!important;
+        backdrop-filter:none!important}
+      html[data-lww-glass] [class*="_composerSeat"] [class*="_card"]::before,
+      html[data-lww-glass] [class*="_composerHero"] [class*="_card"]::before{
+        content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
+        border-radius:inherit;
+        background-color:rgba(var(--lww-scrim-rgb,255,255,255),var(--lww-panel-a,0));
         -webkit-backdrop-filter:blur(var(--lww-panel-b,0px)) saturate(1.06);
-        backdrop-filter:blur(var(--lww-panel-b,0px)) saturate(1.06)}
+        backdrop-filter:blur(var(--lww-panel-b,0px)) saturate(1.06);
+        transform:translateZ(0)}
       /* New session button: the same adjustable material (it is NOT hard-wired
          to transparent; 0% opacity makes it fully see-through). The :not()
          list skips its own label/content/shortcut/mask children. */
@@ -459,20 +716,22 @@ window.__ModuleLoader__.load({
          ================================================================== */
 
       /* ==================================================================
-         Settings nav icon. The shell picks a nav glyph by section id and has
-         no icon seat for third-party sections, so every unknown id (ours)
-         gets the gear of general settings. The Client half marks our row with
-         data-lww-nav and paints its own glyph, so the colour still comes from
-         the row text (light/dark, hover and the active row all follow). The
-         box is 16x16 because the shell renders every built-in glyph with
-         size: 16 — anything larger also pushes the label right, so the row no
-         longer lines up with the others. If the official rows change,
-         decorateSettingsNav matches nothing and the gear stays — nothing breaks.
+         Settings nav icon. The shell falls back to the gear for section ids
+         it does not know, and current shells wrap that fallback in a _navIcon
+         span; older shells put the <svg> straight in the row. The Client half
+         marks our row with data-lww-nav, hides whichever shell glyph is there
+         and paints its own, so the colour still comes from the row text
+         (light/dark, hover and the active row all follow). The box is 16x16
+         because the shell renders every built-in glyph with size: 16 — anything
+         larger also pushes the label right, so the row no longer lines up with
+         the others. If the official rows change, decorateSettingsNav matches
+         nothing and the shell's default glyph stays — nothing breaks.
          ================================================================== */
       [data-lww-nav]{
         --lww-nav-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='3.25' y='5.25' width='17.5' height='13.5' rx='2.4' fill='none' stroke='black' stroke-width='1.9'/%3E%3Ccircle cx='8.6' cy='9.6' r='1.45' fill='black'/%3E%3Cpath d='M3.4 17.6 9.1 12l3 3.1 2.6-2.5 6.2 5z' fill='black'/%3E%3C/svg%3E")}
       @supports ((mask-image:linear-gradient(black,black)) or (-webkit-mask-image:linear-gradient(black,black))){
-        [data-lww-nav]>svg{display:none!important}
+        [data-lww-nav]>svg,
+        [data-lww-nav] [class*="_navIcon"]{display:none!important}
         [data-lww-nav]::before{content:"";flex:none;width:16px;height:16px;
           background-color:currentColor;
           -webkit-mask:var(--lww-nav-icon) center/contain no-repeat;
@@ -481,11 +740,10 @@ window.__ModuleLoader__.load({
 
       .lww-page{width:100%;max-width:100%;box-sizing:border-box;padding:2px 0 32px;
         color:var(--dsw-alias-label-primary);font-size:13px;line-height:1.55}
-      .lww-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin:0 0 14px}
+      .lww-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 0 14px}
       .lww-head-body{min-width:0}
       .lww-title{margin:0;font-size:18px;font-weight:600;line-height:26px}
-      .lww-desc{margin:5px 0 0;font-size:12.5px;line-height:1.55;color:var(--dsw-alias-label-secondary);max-width:46ch}
-      .lww-enable{display:flex;align-items:center;gap:8px;flex:none;padding-top:3px}
+      .lww-enable{display:flex;align-items:center;gap:8px;flex:none}
       .lww-group{margin:18px 2px 8px;font-size:11.5px;font-weight:600;letter-spacing:.04em;
         color:var(--dsw-alias-label-secondary)}
       .lww-group:first-of-type{margin-top:2px}
@@ -647,6 +905,90 @@ window.__ModuleLoader__.load({
         min-width:92px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
       .lww-cache-row .lww-btn{min-width:132px;justify-content:center}
       .lww-fade{opacity:.72}
+
+      /* ==================================================================
+         Font card. The trigger opens a fixed, portalled list so the settings
+         column's overflow cannot clip it. The list rows preview themselves.
+         ================================================================== */
+      .lww-font-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}
+      @media (max-width:680px){.lww-font-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+      @media (max-width:460px){.lww-font-grid{grid-template-columns:minmax(0,1fr)}}
+      .lww-font-field{display:flex;flex-direction:column;gap:5px;min-width:0}
+      .lww-font-label{font-size:11.5px;color:var(--dsw-alias-label-secondary)}
+      .lww-font-trigger{display:flex;align-items:center;gap:8px;height:32px;width:100%;min-width:0;
+        border:1px solid var(--dsw-alias-border-l2);border-radius:8px;
+        background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);
+        padding:0 9px;font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
+      .lww-font-trigger:hover:not(:disabled){border-color:var(--dsw-alias-border-l3)}
+      .lww-font-trigger:disabled{opacity:.55;cursor:default}
+      .lww-font-value{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .lww-font-value.is-default{color:var(--dsw-alias-label-tertiary)}
+      .lww-font-caret{flex:none;color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:1}
+      .lww-font-preview{margin-top:12px;padding:9px 11px;border-radius:9px;
+        background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);
+        display:flex;flex-direction:column;gap:4px;min-width:0}
+      .lww-font-preview-line{display:flex;align-items:baseline;gap:8px;min-width:0;font-size:12px;
+        color:var(--dsw-alias-label-secondary)}
+      .lww-font-preview-label{flex:none;color:var(--dsw-alias-label-tertiary);font-size:11px}
+      .lww-font-preview-ui{font-family:var(--dsw-font-family);font-size:13px;
+        color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .lww-font-preview-code{font-family:var(--ds-font-family-code);font-size:12px;
+        color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .lww-font-preview-terminal{font-family:var(--dsh-font-family-terminal,var(--ds-font-family-code));
+        font-size:12px;color:var(--dsw-alias-label-primary);overflow:hidden;text-overflow:ellipsis;
+        white-space:nowrap}
+      .lww-font-note{margin-top:9px;font-size:11.5px;line-height:1.55;color:var(--dsw-alias-label-secondary)}
+      .lww-font-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
+      .lww-font-actions .lww-font-note{margin-top:0;flex:1;min-width:180px}
+      .lww-font-pop{position:fixed;inset:auto;margin:0;z-index:2147483000;box-sizing:border-box;
+        border:1px solid var(--dsw-alias-border-l2);border-radius:12px;
+        background:var(--dsw-alias-bg-layer-1);
+        box-shadow:0 10px 30px rgba(0,0,0,.18),0 2px 8px rgba(0,0,0,.08);
+        padding:0;display:flex;flex-direction:column;overflow:hidden}
+      @supports selector(:popover-open){
+        .lww-font-pop[popover]:not(:popover-open){display:none}
+      }
+      .lww-font-pop::backdrop{background:transparent;pointer-events:none}
+      .lww-font-pop-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .lww-font-pop-head{display:flex;align-items:center;justify-content:space-between;gap:8px;
+        padding:11px 12px 7px;font-size:12px;font-weight:600;color:var(--dsw-alias-label-primary)}
+      .lww-font-pop-source{font-size:11px;font-weight:400;color:var(--dsw-alias-label-tertiary)}
+      .lww-font-search{position:relative;display:flex;align-items:center;margin:0 8px 7px}
+      .lww-font-search-icon{position:absolute;left:9px;top:50%;transform:translateY(-50%);
+        pointer-events:none;width:13px;height:13px;display:block;
+        color:var(--dsw-alias-label-tertiary)}
+      .lww-font-search .lww-input{height:32px;flex:1;padding-left:28px;padding-right:26px;
+        background:var(--dsw-alias-bg-layer-2);border-radius:8px}
+      .lww-font-search-clear{position:absolute;right:3px;width:24px;height:24px;border:none;
+        background:none;border-radius:6px;color:var(--dsw-alias-label-tertiary);font-size:15px;
+        line-height:1;cursor:pointer;display:grid;place-items:center;padding:0}
+      .lww-font-search-clear:hover{background:var(--dsw-alias-interactive-bg-hover);
+        color:var(--dsw-alias-label-primary)}
+      .lww-font-list{overflow:auto;min-height:0;display:flex;flex-direction:column;gap:1px;
+        padding:0 6px 6px;scrollbar-width:thin;overscroll-behavior:contain}
+      .lww-font-list::-webkit-scrollbar{width:6px}
+      .lww-font-list::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l2);border-radius:999px}
+      .lww-font-list::-webkit-scrollbar-track{background:transparent}
+      .lww-font-option{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;
+        border:none;background:none;border-radius:8px;padding:6px 8px;
+        color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px;text-align:left;
+        cursor:pointer;min-height:32px}
+      .lww-font-option:hover,.lww-font-option:focus-visible{background:var(--dsw-alias-interactive-bg-hover);
+        outline:none}
+      .lww-font-option.is-current{background:color-mix(in srgb,var(--dsw-alias-brand-primary) 9%,transparent)}
+      .lww-font-option-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .lww-font-option-sample{flex:none;max-width:92px;overflow:hidden;text-overflow:ellipsis;
+        white-space:nowrap;font-size:12px;color:var(--dsw-alias-label-secondary);opacity:.9}
+      .lww-font-option-mark{flex:none;width:14px;text-align:center;font-size:11px;
+        color:var(--dsw-alias-brand-primary)}
+      .lww-font-option.is-default .lww-font-option-name{color:var(--dsw-alias-label-secondary)}
+      .lww-font-pop-foot{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;
+        border-top:1px solid var(--dsw-alias-border-l1);padding:7px 12px;font-size:11px;
+        color:var(--dsw-alias-label-tertiary)}
+      .lww-font-pop-note{flex:none;padding:0 12px 7px;font-size:11px;line-height:1.45;
+        color:var(--dsw-alias-label-tertiary)}
+      .lww-font-empty,.lww-font-loading{padding:14px 8px;font-size:12px;
+        color:var(--dsw-alias-label-secondary);text-align:center}
     `
 
     /* ------------------------------------------------------------------ */
@@ -850,6 +1192,7 @@ window.__ModuleLoader__.load({
           const wallpaper = next && next.enabled ? next.wallpaper : null
           if (!wallpaper || !wallpaper.asset) {
             root.removeAttribute('data-lww-active')
+            root.removeAttribute('data-lww-blur')
             root.style.removeProperty('--lww-image')
             root.style.removeProperty('--lww-fit')
             root.style.removeProperty('--lww-blur')
@@ -862,7 +1205,10 @@ window.__ModuleLoader__.load({
           root.setAttribute('data-lww-active', '')
           root.style.setProperty('--lww-image', `url("${wallpaper.asset}")`)
           root.style.setProperty('--lww-fit', next.fit === 'contain' ? 'contain' : 'cover')
-          root.style.setProperty('--lww-blur', `${Number(next.blur) || 0}px`)
+          const blur = clampInt(next.blur, 0, 24, 0)
+          root.style.setProperty('--lww-blur', `${blur}px`)
+          if (blur > 0) root.setAttribute('data-lww-blur', '')
+          else root.removeAttribute('data-lww-blur')
           root.style.setProperty('--lww-dim', String(((Number(next.dim) || 0) / 100).toFixed(3)))
           root.style.setProperty('--lww-floor', floorColor(alphaValue(next.opacity), scheme))
           if (next.contrastEnabled === false) root.removeAttribute('data-lww-contrast')
@@ -904,6 +1250,7 @@ window.__ModuleLoader__.load({
       setBusy('pin')
       setError('')
       try {
+        if (!item.full) throw new Error('no downloadable image for this item')
         const result = await api('/pin', {
           method: 'POST',
           body: JSON.stringify({
@@ -1365,10 +1712,19 @@ window.__ModuleLoader__.load({
       const card = host.querySelector('[class*="_card"]')
       if (!card) return { found: false, host: describeElement(host) }
       const style = getComputedStyle(card)
+      const layer = getComputedStyle(card, '::before')
       return {
         found: true,
         card: describeElement(card),
+        isolation: style.isolation,
         backdropFilter: String(style.backdropFilter || ''),
+        layer: {
+          content: layer.content,
+          backdropFilter: String(layer.backdropFilter || ''),
+          backgroundColor: layer.backgroundColor,
+          borderRadius: layer.borderRadius,
+          zIndex: layer.zIndex,
+        },
       }
     }
 
@@ -1496,6 +1852,7 @@ window.__ModuleLoader__.load({
           lwwActive: root.hasAttribute('data-lww-active'),
           lwwGlass: root.hasAttribute('data-lww-glass'),
           lwwContrast: root.hasAttribute('data-lww-contrast'),
+          lwwBlur: root.hasAttribute('data-lww-blur'),
           windowsTitlebar: root.hasAttribute('data-windows-titlebar'),
           platform: root.getAttribute('data-platform'),
           dark: document.body ? document.body.hasAttribute('data-ds-dark-theme') : null,
@@ -1529,6 +1886,16 @@ window.__ModuleLoader__.load({
           labelTertiary: bodyStyle ? bodyStyle.getPropertyValue('--dsw-alias-label-tertiary').trim() : '',
           labelCaption: bodyStyle ? bodyStyle.getPropertyValue('--dsw-alias-label-caption').trim() : '',
           menuSurfaceFill: bodyStyle ? bodyStyle.getPropertyValue('--dsw-menu-surface-fill').trim() : '',
+        },
+        fonts: {
+          writeSupported: Boolean(themeRef && typeof themeRef.setFontFamily === 'function'),
+          text: bodyStyle ? bodyStyle.getPropertyValue('--dsh-font-family-text').trim() : '',
+          code: bodyStyle ? bodyStyle.getPropertyValue('--dsh-font-family-code').trim() : '',
+          terminal: bodyStyle ? bodyStyle.getPropertyValue('--dsh-font-family-terminal').trim() : '',
+          ui: bodyStyle ? bodyStyle.getPropertyValue('--dsw-font-family').trim() : '',
+          codeEffective: bodyStyle ? bodyStyle.getPropertyValue('--ds-font-family-code').trim() : '',
+          legacyUi: bodyStyle ? bodyStyle.getPropertyValue('--dsw-font').trim() : '',
+          legacyMono: bodyStyle ? bodyStyle.getPropertyValue('--dsw-font-mono').trim() : '',
         },
         glass: Object.fromEntries(GLASS_PROBES.map(([id, selector]) => [id, probeGlass(selector)])),
         composerCard: probeComposerCard(),
@@ -1599,14 +1966,15 @@ window.__ModuleLoader__.load({
 
     /**
      * One tab row for the whole picker: the local wallpapers come first and are
-     * kept apart from the three upstream sources by a hairline, because a file
-     * already on disk is not a source — it is a shortcut back to one.
+     * kept apart from the four upstream source groups by a hairline, because a
+     * file already on disk is not a source — it is a shortcut back to one.
      */
     function SourceTabs(props) {
       const tabs = [
         ['history', props.t('history.title')],
         ['bing', props.t('source.bing')],
         ['art', props.t('source.art')],
+        ['sites', props.t('source.sites')],
         ['custom', props.t('source.custom')],
       ]
       const children = []
@@ -1887,7 +2255,138 @@ window.__ModuleLoader__.load({
         }),
         error ? h('div', { className: 'lww-error' }, error) : null,
         note ? h('div', { className: 'lww-note lww-gap-sm' }, note) : null,
-        h('div', { className: 'lww-note lww-gap' }, t('art.note')),
+      )
+    }
+
+    /**
+     * The Wallpaper sites tab currently fronts 10wallpaper: one chip row for
+     * its category pages, a keyword search, and the shared Tile/Pager contract.
+     */
+    function SitesPanel(props) {
+      const { t, state: current, disabled, pin } = props
+      const [preset, setPreset] = useState(TENWALLPAPER_PRESETS[0].id)
+      const [query, setQuery] = useState('')
+      const [cat, setCat] = useState(TENWALLPAPER_PRESETS[0].cat)
+      const [items, setItems] = useState([])
+      const [page, setPage] = useState(0)
+      const [hasMore, setHasMore] = useState(false)
+      const [total, setTotal] = useState(0)
+      const [loading, setLoading] = useState(true)
+      const [note, setNote] = useState('')
+      const [error, setError] = useState('')
+      const load = useCallback(
+        async (params, nextPage = 0) => {
+          setLoading(true)
+          setError('')
+          setNote('')
+          try {
+            const search = new URLSearchParams({ source: 'tenwallpaper', page: String(nextPage) })
+            if (params.q) search.set('q', params.q)
+            if (params.cat) search.set('cat', params.cat)
+            const data = await api(`/art?${search.toString()}`)
+            setItems(Array.isArray(data && data.items) ? data.items : [])
+            const reportedPage = data && Number(data.page)
+            setPage(Number.isFinite(reportedPage) ? reportedPage : nextPage)
+            setHasMore(Boolean(data && data.hasMore))
+            const reportedTotal = Number(data && data.total)
+            setTotal(Number.isFinite(reportedTotal) && reportedTotal > 0 ? reportedTotal : 0)
+            if (data && data.stale) setNote(t('stale'))
+            if (data && data.ok === false) setError(data.error || t('empty'))
+          } catch (err) {
+            setError(String(err && err.message ? err.message : err))
+          } finally {
+            setLoading(false)
+          }
+        },
+        [t],
+      )
+      useEffect(() => {
+        load({ q: '', cat: TENWALLPAPER_PRESETS[0].cat }, 0)
+      }, [load])
+      const choose = (entry) => {
+        const nextCat = entry.cat || ''
+        setPreset(entry.id)
+        setQuery('')
+        setCat(nextCat)
+        load({ q: '', cat: nextCat }, 0)
+      }
+      const submit = () => {
+        const nextQuery = query.trim()
+        if (!nextQuery) return
+        setPreset('')
+        setCat('')
+        load({ q: nextQuery, cat: '' }, 0)
+      }
+      const params = { q: query.trim(), cat }
+      return h(
+        'div',
+        null,
+        h(
+          'div',
+          { className: 'lww-actions lww-gap-b' },
+          h('input', {
+            className: 'lww-input',
+            value: query,
+            placeholder: t('site.search'),
+            'aria-label': t('site.search'),
+            onChange: (event) => setQuery(event.target.value),
+            onKeyDown: (event) => {
+              if (event.key === 'Enter') submit()
+            },
+          }),
+          h(
+            'button',
+            { type: 'button', className: 'lww-btn is-primary', disabled, onClick: submit },
+            t('art.searchBtn'),
+          ),
+        ),
+        h(
+          'div',
+          { className: 'lww-chips' },
+          TENWALLPAPER_PRESETS.map((entry) =>
+            h(
+              'button',
+              {
+                key: entry.id,
+                type: 'button',
+                className: `lww-chip${preset === entry.id ? ' is-active' : ''}`,
+                onClick: () => choose(entry),
+              },
+              t(entry.label),
+            ),
+          ),
+        ),
+        loading ? h('div', { className: 'lww-empty' }, t('loading')) : null,
+        !loading && items.length === 0 ? h('div', { className: 'lww-empty' }, t('empty')) : null,
+        items.length > 0
+          ? h(
+              'div',
+              { className: 'lww-grid' },
+              items.map((item) =>
+                h(Tile, {
+                  key: `${item.source}-${item.id}`,
+                  item,
+                  t,
+                  disabled,
+                  active: Boolean(current.wallpaper && current.wallpaper.page && current.wallpaper.page === item.page),
+                  onPick: pin,
+                }),
+              ),
+            )
+          : null,
+        h(Pager, {
+          t,
+          page,
+          hasMore,
+          total,
+          loading,
+          items,
+          onPrev: () => load(params, Math.max(0, page - 1)),
+          onNext: () => load(params, page + 1),
+        }),
+        error ? h('div', { className: 'lww-error' }, error) : null,
+        note ? h('div', { className: 'lww-note lww-gap-sm' }, note) : null,
+        h('div', { className: 'lww-note lww-gap' }, t('site.note.tenwallpaper')),
       )
     }
 
@@ -2174,6 +2673,519 @@ window.__ModuleLoader__.load({
       )
     }
 
+    function FontPicker(props) {
+      const { t, role, label, value, fonts, loading, source, error, onLoad, onPick } = props
+      const [open, setOpen] = useState(false)
+      const [query, setQuery] = useState('')
+      const [position, setPosition] = useState(null)
+      const triggerRef = useRef(null)
+      const panelRef = useRef(null)
+      const inputRef = useRef(null)
+      const names = useMemo(() => mergeFonts(fonts || [], value), [fonts, value])
+      const filtered = useMemo(() => {
+        const needle = query.trim().toLowerCase()
+        if (!needle) return names
+        return names.filter((name) => name.toLowerCase().includes(needle))
+      }, [names, query])
+      const custom = query.trim()
+      const customIsNew = Boolean(custom) && !names.some((name) => name.toLowerCase() === custom.toLowerCase())
+      const current = firstFontName(value)
+      const defaultSampleFamily =
+        role === 'terminal'
+          ? 'var(--dsh-font-family-terminal,var(--ds-font-family-code))'
+          : role === 'code'
+            ? 'var(--ds-font-family-code)'
+            : 'var(--dsw-font-family)'
+
+      useEffect(() => {
+        if (!open) return undefined
+        const panel = panelRef.current
+        const onToggle = (event) => {
+          if (event.newState === 'closed') setOpen(false)
+        }
+        if (panel) panel.addEventListener('toggle', onToggle)
+        if (panel && typeof panel.showPopover === 'function') {
+          try {
+            panel.showPopover()
+          } catch {
+            /* already open, or the browser refused the top-layer promotion */
+          }
+        }
+        const onPointerDown = (event) => {
+          const target = event.target
+          if (panelRef.current && panelRef.current.contains(target)) return
+          if (triggerRef.current && triggerRef.current.contains(target)) return
+          setOpen(false)
+        }
+        const onKeyDown = (event) => {
+          if (event.key !== 'Escape') return
+          setOpen(false)
+          try {
+            triggerRef.current?.focus?.()
+          } catch {
+            /* detached trigger */
+          }
+        }
+        const onScroll = (event) => {
+          const target = event.target
+          if (
+            panelRef.current &&
+            typeof Node !== 'undefined' &&
+            target instanceof Node &&
+            panelRef.current.contains(target)
+          ) {
+            return
+          }
+          setOpen(false)
+        }
+        const onResize = () => setOpen(false)
+        document.addEventListener('mousedown', onPointerDown)
+        document.addEventListener('keydown', onKeyDown)
+        window.addEventListener('scroll', onScroll, true)
+        window.addEventListener('resize', onResize)
+        const timer = setTimeout(() => {
+          try {
+            inputRef.current?.focus?.()
+          } catch {
+            /* detached input */
+          }
+        }, 0)
+        return () => {
+          clearTimeout(timer)
+          if (panel) panel.removeEventListener('toggle', onToggle)
+          if (panel && typeof panel.hidePopover === 'function') {
+            try {
+              panel.hidePopover()
+            } catch {
+              /* already closed or detached */
+            }
+          }
+          document.removeEventListener('mousedown', onPointerDown)
+          document.removeEventListener('keydown', onKeyDown)
+          window.removeEventListener('scroll', onScroll, true)
+          window.removeEventListener('resize', onResize)
+        }
+      }, [open])
+
+      const close = () => {
+        setOpen(false)
+        try {
+          triggerRef.current?.focus?.()
+        } catch {
+          /* detached trigger */
+        }
+      }
+      const choose = (family) => {
+        try {
+          onPick(family)
+        } finally {
+          close()
+        }
+      }
+      const openPanel = (event) => {
+        if (open) {
+          close()
+          return
+        }
+        const rect = event.currentTarget.getBoundingClientRect()
+        const width = Math.min(Math.max(rect.width, 320), Math.max(240, window.innerWidth - 16))
+        const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - width - 8))
+        const below = window.innerHeight - rect.bottom - 14
+        const above = rect.top - 14
+        const openAbove = below < 300 && above > below
+        const maxHeight = Math.max(180, Math.min(380, openAbove ? above : below))
+        const top = openAbove ? Math.max(8, rect.top - maxHeight - 6) : rect.bottom + 6
+        setPosition({ left, top, width, maxHeight })
+        setQuery('')
+        setOpen(true)
+        try {
+          onLoad?.()
+        } catch {
+          /* the card owns the visible error */
+        }
+      }
+
+      const defaultOption = h(
+        'button',
+        {
+          key: 'font-default',
+          type: 'button',
+          className: `lww-font-option is-default${value ? '' : ' is-current'}`,
+          onClick: () => choose(''),
+        },
+        h('span', { className: 'lww-font-option-name' }, t('font.default')),
+        h(
+          'span',
+          {
+            className: 'lww-font-option-sample',
+            style: { fontFamily: defaultSampleFamily },
+          },
+          t('font.sample'),
+        ),
+        h('span', { className: 'lww-font-option-mark', 'aria-hidden': 'true' }, value ? '' : '✓'),
+      )
+      const customOption = customIsNew
+        ? h(
+            'button',
+            {
+              key: 'font-custom',
+              type: 'button',
+              className: 'lww-font-option',
+              title: custom,
+              onClick: () => choose(custom),
+            },
+            h('span', { className: 'lww-font-option-name' }, t('font.custom').replace('{name}', custom)),
+            h(
+              'span',
+              { className: 'lww-font-option-sample', style: { fontFamily: cssFontList(custom) } },
+              t('font.sample'),
+            ),
+            h('span', { className: 'lww-font-option-mark', 'aria-hidden': 'true' }, ''),
+          )
+        : null
+      const list = filtered.map((name) =>
+        h(
+          'button',
+          {
+            key: `font-name-${name}`,
+            type: 'button',
+            className: `lww-font-option${current === name.toLowerCase() ? ' is-current' : ''}`,
+            title: name,
+            onClick: () => choose(name),
+          },
+          h('span', { className: 'lww-font-option-name' }, name),
+          h(
+            'span',
+            { className: 'lww-font-option-sample', style: { fontFamily: cssFontName(name) } },
+            t('font.sample'),
+          ),
+          h(
+            'span',
+            { className: 'lww-font-option-mark', 'aria-hidden': 'true' },
+            current === name.toLowerCase() ? '✓' : '',
+          ),
+        ),
+      )
+      const note =
+        source === 'fallback'
+          ? error === 'denied'
+            ? t('font.denied')
+            : error
+              ? t('font.fallback')
+              : ''
+          : ''
+      const panel =
+        open && position
+          ? createPortal(
+              h(
+                'div',
+                {
+                  ref: panelRef,
+                  className: 'lww-font-pop',
+                  popover: 'manual',
+                  role: 'dialog',
+                  'aria-label': label,
+                  style: {
+                    left: `${position.left}px`,
+                    top: `${position.top}px`,
+                    width: `${position.width}px`,
+                    maxHeight: `${position.maxHeight}px`,
+                  },
+                },
+                h(
+                  'div',
+                  { className: 'lww-font-pop-head' },
+                  h('span', { className: 'lww-font-pop-title' }, label),
+                ),
+                h(
+                  'div',
+                  { className: 'lww-font-search' },
+                  h(
+                    'svg',
+                    {
+                      className: 'lww-font-search-icon',
+                      viewBox: '0 0 16 16',
+                      'aria-hidden': 'true',
+                    },
+                    h('circle', {
+                      cx: '6.8',
+                      cy: '6.8',
+                      r: '4.4',
+                      fill: 'none',
+                      stroke: 'currentColor',
+                      strokeWidth: '1.6',
+                    }),
+                    h('path', {
+                      d: 'M10.2 10.2 14 14',
+                      fill: 'none',
+                      stroke: 'currentColor',
+                      strokeWidth: '1.6',
+                      strokeLinecap: 'round',
+                    }),
+                  ),
+                  h('input', {
+                    ref: inputRef,
+                    className: 'lww-input',
+                    value: query,
+                    placeholder: t('font.search'),
+                    'aria-label': t('font.search'),
+                    spellCheck: false,
+                    autoComplete: 'off',
+                    onChange: (event) => setQuery(event.target.value),
+                    onKeyDown: (event) => {
+                      if (event.key !== 'Enter') return
+                      const target = custom || filtered[0]
+                      if (target) choose(target)
+                    },
+                  }),
+                  query
+                    ? h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'lww-font-search-clear',
+                          'aria-label': t('font.clearSearch'),
+                          onClick: () => {
+                            setQuery('')
+                            try {
+                              inputRef.current?.focus?.()
+                            } catch {
+                              /* detached input */
+                            }
+                          },
+                        },
+                        '×',
+                      )
+                    : null,
+                ),
+                loading
+                  ? h('div', { className: 'lww-font-loading' }, t('font.loading'))
+                  : h(
+                      'div',
+                      {
+                        className: 'lww-font-list',
+                        style: { maxHeight: `${Math.max(120, position.maxHeight - 126)}px` },
+                      },
+                      defaultOption,
+                      customOption,
+                      list.length ? list : h('div', { className: 'lww-font-empty' }, t('font.noMatch')),
+                    ),
+                note ? h('div', { className: 'lww-font-pop-note' }, note) : null,
+                !loading
+                  ? h(
+                      'div',
+                      { className: 'lww-font-pop-foot' },
+                      h(
+                        'span',
+                        null,
+                        source === 'system'
+                          ? t('font.systemSource')
+                          : source === 'fallback'
+                            ? t('font.fallbackSource')
+                            : '',
+                      ),
+                      h('span', null, `${filtered.length}/${names.length}`),
+                    )
+                  : null,
+              ),
+              document.body,
+            )
+          : null
+
+      return h(
+        'div',
+        { className: 'lww-font-field' },
+        h('div', { className: 'lww-font-label' }, label),
+        h(
+          'button',
+          {
+            ref: triggerRef,
+            type: 'button',
+            className: 'lww-font-trigger',
+            'aria-label': label,
+            'aria-haspopup': 'dialog',
+            'aria-expanded': open ? 'true' : 'false',
+            onClick: openPanel,
+          },
+          h('span', { className: `lww-font-value${value ? '' : ' is-default'}` }, fontLabel(value, t('font.default'))),
+          h('span', { className: 'lww-font-caret', 'aria-hidden': 'true' }, '▾'),
+        ),
+        panel,
+      )
+    }
+
+    /**
+     * Font picker card. The official ui-theme service owns the value; this
+     * card only enumerates fonts and calls `setFontFamily`, so the official
+     * General settings fields and this card always agree.
+     */
+    function FontCard(props) {
+      const { t } = props
+      const [fonts, setFonts] = useState(null)
+      const [loading, setLoading] = useState(false)
+      const [source, setSource] = useState('')
+      const [loadError, setLoadError] = useState('')
+      const [writeError, setWriteError] = useState('')
+      const [notice, setNotice] = useState('')
+      const theme = themeRef
+      const snapshot = theme && typeof theme.getTheme === 'function' ? theme.getTheme() : null
+      const families = snapshot && snapshot.fontFamilies ? snapshot.fontFamilies : { text: '', code: '', terminal: '' }
+      const supported = Boolean(theme && typeof theme.setFontFamily === 'function')
+
+      const load = useCallback(
+        async (force) => {
+          if (fonts && !force) return fonts
+          setLoading(true)
+          setLoadError('')
+          try {
+            const result = await fetchSystemFonts()
+            setFonts(result.fonts)
+            setSource(result.source)
+            setLoadError(result.error)
+            return result.fonts
+          } catch (error) {
+            setLoadError(String(error && error.message ? error.message : error))
+            return []
+          } finally {
+            setLoading(false)
+          }
+        },
+        [fonts],
+      )
+
+      const reload = () => {
+        resetFontListCache()
+        void load(true)
+      }
+      const apply = (role, family) => {
+        setWriteError('')
+        setNotice('')
+        if (!supported) return
+        try {
+          theme.setFontFamily(role, family)
+        } catch (error) {
+          setWriteError(String(error && error.message ? error.message : error))
+        }
+      }
+      const reset = () => {
+        setWriteError('')
+        setNotice('')
+        if (!supported) return
+        try {
+          theme.setFontFamily('text', '')
+          theme.setFontFamily('code', '')
+          theme.setFontFamily('terminal', '')
+          setNotice(t('font.bothDefault'))
+        } catch (error) {
+          setWriteError(String(error && error.message ? error.message : error))
+        }
+      }
+      const noteText =
+        loadError === 'denied'
+          ? t('font.denied')
+          : loadError
+            ? t('font.fallback')
+            : ''
+
+      return h(
+        'div',
+        { className: 'lww-card lww-font-card' },
+        h(
+          'div',
+          { className: 'lww-card-hd' },
+          h(
+            'div',
+            { className: 'lww-card-head-main' },
+            h('div', { className: 'lww-card-title' }, t('font.title')),
+          ),
+          h(
+            'button',
+            { type: 'button', className: 'lww-btn lww-font-reset', disabled: !supported, onClick: reset },
+            t('font.reset'),
+          ),
+        ),
+        supported
+          ? h(
+              'div',
+              { className: 'lww-font-grid' },
+              h(FontPicker, {
+                t,
+                role: 'text',
+                label: t('font.ui'),
+                value: families.text || '',
+                fonts: fonts || [],
+                loading,
+                source,
+                error: loadError,
+                onLoad: () => load(false),
+                onPick: (family) => apply('text', family),
+              }),
+              h(FontPicker, {
+                t,
+                role: 'code',
+                label: t('font.code'),
+                value: families.code || '',
+                fonts: fonts || [],
+                loading,
+                source,
+                error: loadError,
+                onLoad: () => load(false),
+                onPick: (family) => apply('code', family),
+              }),
+              h(FontPicker, {
+                t,
+                role: 'terminal',
+                label: t('font.terminal'),
+                value: families.terminal || '',
+                fonts: fonts || [],
+                loading,
+                source,
+                error: loadError,
+                onLoad: () => load(false),
+                onPick: (family) => apply('terminal', family),
+              }),
+            )
+          : h('div', { className: 'lww-note lww-gap' }, t('font.unavailable')),
+        h(
+          'div',
+          { className: 'lww-font-preview' },
+          h(
+            'div',
+            { className: 'lww-font-preview-line' },
+            h('span', { className: 'lww-font-preview-label' }, t('font.ui')),
+            h('span', { className: 'lww-font-preview-ui' }, t('font.previewUi')),
+          ),
+          h(
+            'div',
+            { className: 'lww-font-preview-line' },
+            h('span', { className: 'lww-font-preview-label' }, t('font.code')),
+            h('span', { className: 'lww-font-preview-code' }, t('font.previewCode')),
+          ),
+          h(
+            'div',
+            { className: 'lww-font-preview-line' },
+            h('span', { className: 'lww-font-preview-label' }, t('font.terminal')),
+            h('span', { className: 'lww-font-preview-terminal' }, t('font.previewTerminal')),
+          ),
+        ),
+        writeError ? h('div', { className: 'lww-error lww-gap-sm' }, writeError) : null,
+        notice ? h('div', { className: 'lww-note lww-gap-sm' }, notice) : null,
+        supported ? h('div', { className: 'lww-font-note' }, t('font.note')) : null,
+        noteText
+          ? h(
+              'div',
+              { className: 'lww-font-actions' },
+              h('span', { className: 'lww-font-note' }, noteText),
+              h(
+                'button',
+                { type: 'button', className: 'lww-btn lww-font-reset', disabled: loading, onClick: reload },
+                t('font.retry'),
+              ),
+            )
+          : null,
+      )
+    }
+
     function SettingsPage() {
       const value = useStore()
       const current = value.state
@@ -2207,7 +3219,6 @@ window.__ModuleLoader__.load({
             'div',
             { className: 'lww-head-body' },
             h('h1', { className: 'lww-title' }, translate('page.title')),
-            h('p', { className: 'lww-desc' }, translate('page.desc')),
           ),
           h(
             'div',
@@ -2264,6 +3275,7 @@ window.__ModuleLoader__.load({
           tab === 'history' ? h(HistoryPanel, { t: translate, state: current, onApply: applyHistory }) : null,
           tab === 'bing' ? h(BingPanel, { t: translate, state: current, disabled, pin: pinItem }) : null,
           tab === 'art' ? h(ArtPanel, { t: translate, state: current, disabled, pin: pinItem }) : null,
+          tab === 'sites' ? h(SitesPanel, { t: translate, state: current, disabled, pin: pinItem }) : null,
           tab === 'custom' ? h(CustomPanel, { t: translate, state: current, disabled }) : null,
         ),
 
@@ -2345,7 +3357,6 @@ window.__ModuleLoader__.load({
               onChange: (next) => setState({ contrastEnabled: next }),
             }),
           ),
-          h('div', { className: 'lww-note lww-gap' }, translate('effect.hint')),
           h(
             'div',
             { className: 'lww-card-actions' },
@@ -2407,7 +3418,6 @@ window.__ModuleLoader__.load({
                   unit: 'px',
                   onChange: (next) => setState({ panelBlur: next }),
                 }),
-                h('div', { className: 'lww-note lww-gap' }, translate('panel.hint')),
               )
             : h('div', { className: 'lww-note' }, translate('panel.off')),
         ),
@@ -2431,6 +3441,9 @@ window.__ModuleLoader__.load({
             }),
           ),
         ),
+
+        h('div', { className: 'lww-group' }, translate('group.fonts')),
+        h(FontCard, { t: translate }),
 
         h('div', { className: 'lww-group' }, translate('group.data')),
         h(CacheCard, { t: translate }),
@@ -2482,7 +3495,16 @@ window.__ModuleLoader__.load({
       // when this callback runs, so it is never the source of truth here.
       ctx.effect(() => {
         if (typeof ctx.on !== 'function') return () => {}
-        return ctx.on('theme/change', (snapshot) => visual(state, snapshot))
+        let fontSignature = ''
+        return ctx.on('theme/change', (snapshot) => {
+          visual(state, snapshot)
+          const fonts = snapshot && snapshot.fontFamilies
+          if (!fonts) return
+          const signature = `${fonts.text}\u0000${fonts.code}`
+          if (signature === fontSignature) return
+          fontSignature = signature
+          emit()
+        })
       })
       // Belt and braces: whichever part of the app flips the palette attribute,
       // repaint once it has landed (a microtask later, so the DOM is already
@@ -2534,6 +3556,13 @@ window.__ModuleLoader__.load({
           check: collectSelfCheck,
           report: sendSelfCheck,
           nav: { decorate: decorateSettingsNav, probe: probeSettingsNav },
+          fonts: {
+            clean: cleanFontName,
+            css: cssFontName,
+            list: cssFontList,
+            merge: mergeFonts,
+            label: fontLabel,
+          },
         }
       } catch {
         /* non-browser context */
