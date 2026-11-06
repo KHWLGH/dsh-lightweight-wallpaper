@@ -635,6 +635,34 @@ window.__ModuleLoader__.load({
         background-color:transparent!important;background-image:none!important;
         border-radius:0!important;border-left:none!important;border-right:none!important}
 
+      /* ==================================================================
+         Fullscreen right Sidebar. DSH gives the panel the page colour
+         (--dsw-alias-bg-base on its docked tab host) and keeps the wide-screen
+         conversation column mounted underneath, so an opaque page hides the
+         transcript, the composer and the status line by itself. We made that
+         page transparent, so a fullscreen document, terminal or file tree
+         became a window onto the conversation behind it. While that panel
+         covers the frame the conversation column steps aside and the wallpaper
+         is the page the panel was always transparent against. Leaving
+         fullscreen keeps the panel open beside the conversation, so the column
+         comes back at once; a closed panel comes back after its slide.
+         ================================================================== */
+      html[data-lww-active] [class*="_centerCol"]{
+        transition:visibility 0s linear var(--ds-transition-duration-slow,.3s)}
+      html[data-lww-active] [class*="_frame"]:has([data-sidebar-right-panel="fullscreen"][data-sidebar-right-open]) [class*="_centerCol"]{
+        visibility:hidden;transition-delay:0s}
+      html[data-lww-active] [class*="_frame"]:has([data-sidebar-right-panel="push"][data-sidebar-right-open]) [class*="_centerCol"]{
+        visibility:visible;transition-delay:0s}
+      /* Only the Windows shell insets the fullscreen panel to the right of the
+         docked sidebar. Everywhere else the panel spans the whole frame, so the
+         sidebar needs the same treatment; an open drawer paints above the panel
+         and is left alone. */
+      html[data-lww-active]:not([data-windows-titlebar]) [class*="_frame"]:not([data-sidebar-drawer]):has([data-sidebar-right-panel="fullscreen"][data-sidebar-right-open]) [class*="_sidebarCol"]{
+        visibility:hidden}
+      @media (prefers-reduced-motion:reduce){
+        html[data-lww-active] [class*="_centerCol"]{transition:none}
+      }
+
       /* Glass tint belongs to the palette attribute, not to a script: the
          composer card is a descendant of body, so it inherits the value and a
          theme switch repaints it even if no JavaScript runs at all. The
@@ -1659,6 +1687,7 @@ window.__ModuleLoader__.load({
         bgImage: String(style.backgroundImage || '').slice(0, 140),
         backdropFilter: String(style.backdropFilter || '').slice(0, 80),
         opacity: style.opacity,
+        visibility: style.visibility,
         position: style.position,
         zIndex: style.zIndex,
         rect: { x: Math.round(rect.x), y: Math.round(rect.y), w: Math.round(rect.width), h: Math.round(rect.height) },
@@ -1795,6 +1824,10 @@ window.__ModuleLoader__.load({
     function collectSelfCheck() {
       const root = document.documentElement
       const pick = (selector) => document.querySelector(selector)
+      /* The right panel's presentation decides whether the conversation column
+         is standing aside, so both halves of that rule belong in the report. */
+      const rightPanel = pick('[data-sidebar-right-panel]')
+      const centerCol = pick('[class*="_centerCol"]')
       const tokenNames = [
         '--dsw-alias-bg-base',
         '--dsw-specific-sidebar-fill',
@@ -1860,6 +1893,12 @@ window.__ModuleLoader__.load({
         styleTag: Boolean(document.getElementById('dsh-lightweight-wallpaper-styles')),
         tokens,
         navIcon: probeSettingsNav(),
+        rightPanel: {
+          presentation: rightPanel ? rightPanel.getAttribute('data-sidebar-right-panel') : null,
+          open: rightPanel ? rightPanel.hasAttribute('data-sidebar-right-open') : null,
+          opening: rightPanel ? rightPanel.hasAttribute('data-sidebar-right-opening') : null,
+          centerColVisibility: centerCol ? getComputedStyle(centerCol).visibility : null,
+        },
         scheme: {
           paint: paintScheme,
           service: schemeOf(serviceSnapshot),
@@ -1907,9 +1946,10 @@ window.__ModuleLoader__.load({
           body: describeElement(document.body),
           root: describeElement(document.getElementById('root')),
           frame: describeElement(pick('[class*="_frame"]')),
-          centerCol: describeElement(pick('[class*="_centerCol"]')),
+          centerCol: describeElement(centerCol),
           sidebarCol: describeElement(pick('[class*="_sidebarCol"]')),
           conversationRoot: describeElement(pick('[data-slot="conversation.session"]')),
+          rightPanel: describeElement(rightPanel),
         },
         points,
       }

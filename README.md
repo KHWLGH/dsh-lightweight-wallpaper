@@ -52,6 +52,7 @@
 
 - **整窗壁纸 + 四个全局参数**：壁纸铺满最底层；填充方式（铺满 / 适应）、整窗遮罩、压暗、壁纸模糊都可调，滑杆所见即所得。
 - **毛玻璃只上两处**：输入框卡片与侧栏「新会话」按钮共用一组浓度与模糊；关掉总开关即恢复实心。
+- **右栏全屏不再透出会话**：文档、终端或文件树全屏覆盖窗口时，面板背后那块「页面」交回壁纸，底下的会话列（正文、输入框、状态行）暂时让位；切回停靠立即恢复，关闭全屏等面板滑出后再恢复。
 - **弹层可读性**：壁纸开启时，输入框「+」菜单、模型选择等弹层改为接近实心并加背景模糊，小字不会糊在壁纸上。
 - **浅色增强对比**：无毛玻璃处的次要灰字加深（`label-secondary` 700→800、`label-tertiary` 600→750、`label-caption` 400→700）；深色主题与关闭壁纸时不生效。
 - **深浅主题同步**：遮罩颜色跟随系统深浅主题（含「跟随系统」），切换时不会停在上一套配色。
@@ -104,7 +105,7 @@ dsh plugin --profile desktop add dsh-lightweight-wallpaper
 锁版本与升级：
 
 ```bash
-dsh plugin --profile desktop add dsh-lightweight-wallpaper@0.1.1    # 固定版本
+dsh plugin --profile desktop add dsh-lightweight-wallpaper@0.1.2    # 固定版本
 dsh plugin --profile desktop add dsh-lightweight-wallpaper@latest   # 升级
 ```
 
@@ -124,7 +125,7 @@ Git 源取的是源码树而不是构建产物，通常要先 `prepare` 构建�
 ```bash
 dsh plugin --profile desktop add "<本目录绝对路径>"                    # 改代码时
 npm pack                                                             # 离线 / 内网分发：先打包
-dsh plugin --profile desktop add ./dsh-lightweight-wallpaper-0.1.1.tgz
+dsh plugin --profile desktop add ./dsh-lightweight-wallpaper-0.1.2.tgz
 ```
 
 tarball 是预构建的压缩包，同样不需要构建授权；从非官方渠道拿到的文件建议先核对 sha256。
@@ -213,6 +214,7 @@ dsh plugin --profile desktop remove dsh-lightweight-wallpaper
 - 毛玻璃开启时，`composerCard.card.backdropFilter` 应为 `none`，`composerCard.isolation` 应为 `isolate`，`composerCard.layer.backdropFilter` 应含 `blur`、`zIndex` 为 `-1`、`borderRadius` 与卡片一致；`attributes.lwwBlur` 在壁纸模糊为 0 时应为 `false`。
 - `fonts.writeSupported` 应为 `true`；`fonts.text` / `fonts.code` / `fonts.terminal` 是官方选中的字体列表，`fonts.legacyUi` / `fonts.legacyMono` 应分别解析到当前界面字体栈和代码字体栈（含 `sans-serif` / `ui-monospace` 兜底）。
 - `navIcon.matched` 与 `navIcon.decorated` 为 `true` 表示导航图标装饰生效；`opaqueSurfaces` 里出现意外条目，就是「白块」的来源。
+- `rightPanel.presentation` 为 `fullscreen` 且 `rightPanel.open` 为 `true` 时，`rightPanel.centerColVisibility`（以及 `elements.centerCol.visibility`）应为 `hidden`——这就是「右栏全屏时底下会话透出」的判据；`push` 或面板收起时应为 `visible`。
 
 ## 已知限制
 
@@ -225,6 +227,7 @@ dsh plugin --profile desktop remove dsh-lightweight-wallpaper
 ### 样式依赖与可读性折中
 
 - 毛玻璃依赖官方 CSS-module 的类名后缀（`_composerSeat`、`_card`、`_newSession` 等）；DSH 大版本改类名后，需要按自检报告更新选择器。
+- 全屏右栏的判断依赖官方 `data-sidebar-right-panel` / `data-sidebar-right-open` 属性与 `_centerCol` / `_frame` 类名后缀；DSH 改属性名或类名后选择器失效只会退回「透出会话」，不会误藏内容，按自检报告更新即可。
 - 输入框卡片的玻璃材质挂在 `_card::before`，卡片自身保持透明；这样发送键 hover 重绘时不会重新栅格化 backdrop-filter。官方卡片未来如果自带 `::before`，需要调整选择器。
 - 环境禁用 `backdrop-filter` 时，毛玻璃只剩浓度遮罩、没有背景模糊，可读性不受影响。
 - 字体枚举依赖浏览器 Local Font Access API；权限被拒、浏览器不支持或 DSH 关闭该 API 时，只能从内置常见字体中选，或手动输入字体名。
@@ -270,6 +273,7 @@ node tools/dev.mjs               # 开发循环：保存即语法闸门 + 对应
 ## 实现
 
 - **只有一层基础遮罩**：官方容器的 `--dsw-alias-bg-base` 与 `--dsw-specific-sidebar-fill` 全部置透明，壁纸与遮罩都由插件自己画。
+- **全屏右栏靠会话列让位**：官方全屏面板自身没有面，靠 `--dsw-alias-bg-base` 当页面；该 token 已透明，于是面板全屏打开期间用 `:has([data-sidebar-right-panel="fullscreen"][data-sidebar-right-open])` 把 `_centerCol` 置 `visibility:hidden`（不改布局、不卸载，壁纸成为面板背后的页面）。恢复时机：切回停靠（`[data-sidebar-right-panel="push"]`）立即恢复，关闭面板等 `--ds-transition-duration-slow` 的滑出结束再恢复；减少动态效果时不再等待。非 Windows 外壳上面板铺满整帧，`_sidebarCol` 一并处理（抽屉式侧栏由官方叠在面板之上，不动）。
 - **毛玻璃只画两处**：输入框卡片的 `_card::before` 玻璃层与 `[class*="_newSession"]`；卡片自身保持透明并建立 isolation，发送键 hover 重绘不会重新栅格化 backdrop-filter，也不改 `--dsw-specific-input-major` 之类的全局 token。
 - **字体写入官方设置**：界面/代码/终端字体通过 `ctx.theme.setFontFamily` 写入 `ui-theme`；旧的 `--dsw-font` / `--dsw-font-mono` 映射到官方字体变量，代码编辑器与代码块共用同一套代码字体，终端字体沿用官方 `--dsh-font-family-terminal`。
 - **主题色取服务快照**：遮罩色 `--lww-floor` 来自 `theme/change` 载荷（其次 `ctx.theme.getTheme()`）；玻璃底色 `--lww-scrim-rgb` 由 CSS 按 `body[data-ds-dark-theme]` 决定，另有 `MutationObserver` 兜底重画。

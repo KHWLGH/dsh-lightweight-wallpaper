@@ -1,6 +1,6 @@
 {
   "name": "dsh-lightweight-wallpaper",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "Lightweight wallpaper and font plugin for DeepSeek Harness: Bing daily, Wikimedia art, Cleveland CC0, 10wallpaper, and local upload, with paged browsing, recent-used history, cache management, system font pickers for the interface, code and terminal, a small cached host proxy and a thumbnail cache.",
   "license": "MIT",

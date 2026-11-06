@@ -269,6 +269,31 @@ for (const needle of [
 }
 assert.ok(!cssText.includes('--dsw-specific-input-major:transparent'), 'no global composer token override')
 assert.ok(!cssText.includes('[class*="_bottomRow"]{\n        background-color:rgba'), 'the full-width bottom row must not be painted')
+/* The fullscreen right Sidebar takes the page colour and would otherwise show
+   the conversation column it covers; the stylesheet makes that column step
+   aside for as long as the panel is open in the fullscreen presentation. */
+for (const needle of [
+  '[data-sidebar-right-panel="fullscreen"][data-sidebar-right-open]',
+  '[data-sidebar-right-panel="push"][data-sidebar-right-open]',
+  'visibility:hidden;transition-delay:0s',
+  'transition:visibility 0s linear var(--ds-transition-duration-slow',
+  'prefers-reduced-motion:reduce',
+]) {
+  assert.ok(cssText.includes(needle), `stylesheet must carry ${needle}`)
+}
+assert.ok(
+  /html\[data-lww-active\] \[class\*="_frame"\]:has\(\[data-sidebar-right-panel="fullscreen"\]/.test(cssText),
+  'the conversation must only stand aside under an active wallpaper and a fullscreen right panel',
+)
+const cssRules = cssText.replace(/\/\*[\s\S]*?\*\//g, '')
+const hideRules = [...cssRules.matchAll(/([^{}]*\[class\*="_(?:center|sidebar)Col"\][^{}]*)\{\s*visibility:hidden/g)]
+assert.equal(hideRules.length, 2, 'exactly the conversation and the covered sidebar may stand aside')
+for (const [, selector] of hideRules) {
+  assert.ok(
+    selector.trim().startsWith('html[data-lww-active]'),
+    `standing content aside must stay scoped under html[data-lww-active]: ${selector.trim()}`,
+  )
+}
 assert.ok(
   fakeWindow.__dshLightweightWallpaper && typeof fakeWindow.__dshLightweightWallpaper.check === 'function',
   'self-check hook must be exposed on window',
@@ -599,6 +624,7 @@ console.log('PASS  glass + contrast attributes land on the root with no hidden b
 console.log('PASS  glass tint comes from the stylesheet, not from an inline variable')
 console.log('PASS  a dark snapshot repaints the scrim: payload → getTheme() → attribute')
 console.log('PASS  stylesheet carries composer-card, new-session and contrast rules')
+console.log('PASS  fullscreen right sidebar stands the conversation aside (no transcript bleed)')
 console.log('PASS  art presets, pager strings and small-thumbnail proxy requests')
 console.log('PASS  recent-list + cache manager: i18n, endpoints, epoch and history grid')
 console.log('PASS  merged picker: recently-used first tab, sources behind a separator')

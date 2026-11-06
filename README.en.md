@@ -52,6 +52,7 @@ Wallpaper settings, images and caches all live under `$DSH_HOME/lightweight-wall
 
 - **Full-window wallpaper + four global controls**: the wallpaper covers the bottom layer; fill mode (cover / contain), window scrim, dim and wallpaper blur are all adjustable, and the sliders preview live.
 - **Glass on two surfaces only**: the composer card and the sidebar New session button share one opacity and one blur; turning the master switch off makes them solid again.
+- **A fullscreen right sidebar no longer leaks the transcript**: while a document, terminal or file tree covers the window, the page behind the panel goes back to the wallpaper and the conversation column (transcript, composer, status line) steps aside; it returns at once when the panel goes back to its docked presentation, and after the panel's slide when the panel closes.
 - **Readable popovers**: while a wallpaper is active, the composer "+" menu, the model picker and other popovers turn near-solid with a background blur, so small text no longer drowns in the artwork.
 - **Light-mode contrast boost**: secondary greys outside the glass step darker (`label-secondary` 700→800, `label-tertiary` 600→750, `label-caption` 400→700); the dark theme and the wallpaper-off state are untouched.
 - **Theme sync**: the scrim colour follows the system light/dark theme (including "follow system") and never stays on the previous palette after a switch.
@@ -104,7 +105,7 @@ dsh plugin --profile desktop add dsh-lightweight-wallpaper
 Pin a version or upgrade:
 
 ```bash
-dsh plugin --profile desktop add dsh-lightweight-wallpaper@0.1.1    # pin
+dsh plugin --profile desktop add dsh-lightweight-wallpaper@0.1.2    # pin
 dsh plugin --profile desktop add dsh-lightweight-wallpaper@latest   # upgrade
 ```
 
@@ -124,7 +125,7 @@ A Git install fetches the source tree rather than a built artifact, which normal
 ```bash
 dsh plugin --profile desktop add "<absolute path to this directory>"   # while editing code
 npm pack                                                              # offline / intranet: pack first
-dsh plugin --profile desktop add ./dsh-lightweight-wallpaper-0.1.1.tgz
+dsh plugin --profile desktop add ./dsh-lightweight-wallpaper-0.1.2.tgz
 ```
 
 A tarball is a prebuilt archive, so it needs no build approval either; check the sha256 first when the file came from an unofficial channel.
@@ -213,6 +214,7 @@ Settings → Wallpaper & fonts → **Self-check** at the bottom of Display write
 - With glass on, `composerCard.card.backdropFilter` should be `none`, `composerCard.isolation` should be `isolate`, and `composerCard.layer.backdropFilter` should contain `blur` with `zIndex` `-1` and the card's `borderRadius`; `attributes.lwwBlur` should be `false` when the wallpaper blur is 0.
 - `fonts.writeSupported` should be `true`; `fonts.text` / `fonts.code` / `fonts.terminal` are the official family lists, while `fonts.legacyUi` / `fonts.legacyMono` should resolve to the current interface and code stacks (including the `sans-serif` / `ui-monospace` fallbacks).
 - `navIcon.matched` and `navIcon.decorated` being `true` means the navigation icon decoration applied; any unexpected entry in `opaqueSurfaces` is where a white block comes from.
+- When `rightPanel.presentation` is `fullscreen` and `rightPanel.open` is `true`, `rightPanel.centerColVisibility` (and `elements.centerCol.visibility`) should be `hidden` — that is the test for "the conversation shows through a fullscreen right panel"; they should be `visible` in the `push` presentation or with the panel closed.
 
 ## Known limitations
 
@@ -225,6 +227,7 @@ Settings → Wallpaper & fonts → **Self-check** at the bottom of Display write
 ### Style dependencies and readability trade-offs
 
 - The glass depends on the official CSS-module class suffixes (`_composerSeat`, `_card`, `_newSession`, and so on); after a major DSH version changes them, update the selectors using the self-check report.
+- The fullscreen-right-panel rule depends on the official `data-sidebar-right-panel` / `data-sidebar-right-open` attributes and the `_centerCol` / `_frame` class suffixes; after a DSH rename the rule stops matching and only restores the bleed-through — it never hides unrelated content — so update the selectors from the self-check report.
 - The composer glass material sits on `_card::before`, while the card itself stays transparent; this keeps the send button's hover repaint from re-rasterizing the backdrop-filter. If the official card ever gains its own `::before`, the selector needs adjusting.
 - When `backdrop-filter` is disabled, the glass keeps its tint but loses the background blur; readability is unaffected.
 - Font enumeration depends on the browser's Local Font Access API; when access is denied, the browser lacks it or DSH disables it, only the built-in common list and manual family names are available.
@@ -270,6 +273,7 @@ node tools/dev.mjs               # dev loop: syntax gate on save plus the matchi
 ## Implementation
 
 - **A single base scrim**: every official container token (`--dsw-alias-bg-base`, `--dsw-specific-sidebar-fill`) is set transparent, and the plugin paints both the wallpaper and the scrim itself.
+- **The fullscreen right panel stands the conversation aside**: the official panel has no surface of its own and uses `--dsw-alias-bg-base` as the page; that token is transparent here, so while the panel is open in the fullscreen presentation `:has([data-sidebar-right-panel="fullscreen"][data-sidebar-right-open])` sets `visibility:hidden` on `_centerCol` (no layout change, no unmount, and the wallpaper becomes the page behind the panel). It comes back at once when the panel returns to the docked presentation (`[data-sidebar-right-panel="push"]`) and after the `--ds-transition-duration-slow` slide when the panel closes; reduced motion skips that wait. Shells where the fullscreen panel spans the whole frame also get `_sidebarCol`, while an open drawer paints above the panel and is left alone.
 - **Glass on exactly two surfaces**: the composer card's `_card::before` glass layer and `[class*="_newSession"]`; the card itself stays transparent and isolated, so the send button's hover repaint does not re-rasterize the backdrop-filter, and global tokens such as `--dsw-specific-input-major` are left alone.
 - **Fonts are written through the official settings**: `ctx.theme.setFontFamily` updates `ui-theme` for the interface, code and terminal roles; the legacy `--dsw-font` / `--dsw-font-mono` names map to the official variables so the editor and code blocks share one code font, while the terminal follows `--dsh-font-family-terminal`.
 - **Theme colours come from the service snapshot**: the scrim colour `--lww-floor` comes from the `theme/change` payload (falling back to `ctx.theme.getTheme()`); the glass tint `--lww-scrim-rgb` is decided by CSS from `body[data-ds-dark-theme]`, with a `MutationObserver` as a safety net.
