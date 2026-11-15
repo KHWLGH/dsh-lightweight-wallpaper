@@ -6,7 +6,7 @@
 
 # dsh-lightweight-wallpaper
 
-**给 DeepSeek Harness 的轻量壁纸与字体插件：五种壁纸来源、整窗铺满，卡片与弹窗保持实心，毛玻璃只上两处；界面、代码与终端字体可从系统字体中选择。零运行时依赖、零构建步骤、不打包任何图片或字体。**
+**给 DeepSeek Harness 的轻量壁纸与字体插件：五种壁纸来源、整窗铺满，卡片与弹窗保持实心，输入框与会话操作共用毛玻璃；界面、代码与终端字体可从系统字体中选择。零运行时依赖、零构建步骤、不打包任何图片或字体。**
 
 [![npm version](https://img.shields.io/npm/v/dsh-lightweight-wallpaper?style=flat-square&logo=npm&logoColor=white&color=CB3837)](https://www.npmjs.com/package/dsh-lightweight-wallpaper)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-lightweight-wallpaper?style=flat-square&label=downloads&color=CB3837&logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-lightweight-wallpaper)
@@ -32,7 +32,7 @@
 
 ## 简介
 
-插件把壁纸铺在 Harness 窗口的最底层：画布与侧栏透出壁纸，卡片、弹窗与代码块保持实心可读；只有输入框卡片和侧栏「新会话」按钮额外加一层毛玻璃。设置页的「字体」组还能从系统字体中选择界面字体、代码字体和终端字体；代码字体同时作用于代码块与侧栏文件预览/编辑器，终端字体作用于侧栏终端。
+插件把壁纸铺在 Harness 窗口的最底层：画布与侧栏透出壁纸，卡片、弹窗与代码块保持实心可读；只有输入框卡片和侧栏「新会话」「导入 DeepSeek 会话」按钮额外加一层毛玻璃。设置页的「字体」组还能从系统字体中选择界面字体、代码字体和终端字体；代码字体同时作用于代码块与侧栏文件预览/编辑器，终端字体作用于侧栏终端。
 
 壁纸来源有五种：必应每日、维基共享的公共领域名画、克利夫兰艺术博物馆的 CC0 馆藏、10wallpaper，以及本地上传的图片。所有上游请求都由宿主代发并在本地缓存，浏览器不直连第三方接口；断网或上游失败时，回放上一次成功的结果。
 
@@ -51,7 +51,7 @@
 ### 显示与可读性
 
 - **整窗壁纸 + 四个全局参数**：壁纸铺满最底层；填充方式（铺满 / 适应）、整窗遮罩、压暗、壁纸模糊都可调，滑杆所见即所得。
-- **毛玻璃只上两处**：输入框卡片与侧栏「新会话」按钮共用一组浓度与模糊；关掉总开关即恢复实心。
+- **输入框与会话操作共用毛玻璃**：输入框卡片与侧栏「新会话」「导入 DeepSeek 会话」按钮共用一组浓度与模糊；关闭毛玻璃后恢复默认背景。
 - **右栏全屏不再透出会话**：文档、终端或文件树全屏覆盖窗口时，面板背后那块「页面」交回壁纸，底下的会话列（正文、输入框、状态行）暂时让位；切回停靠立即恢复，关闭全屏等面板滑出后再恢复。
 - **弹层可读性**：壁纸开启时，输入框「+」菜单、模型选择等弹层改为接近实心并加背景模糊，小字不会糊在壁纸上。
 - **浅色增强对比**：无毛玻璃处的次要灰字加深（`label-secondary` 700→800、`label-tertiary` 600→750、`label-caption` 400→700）；深色主题与关闭壁纸时不生效。
@@ -105,7 +105,7 @@ dsh plugin --profile desktop add dsh-lightweight-wallpaper
 锁版本与升级：
 
 ```bash
-dsh plugin --profile desktop add dsh-lightweight-wallpaper@0.1.2    # 固定版本
+dsh plugin --profile desktop add dsh-lightweight-wallpaper@0.1.3    # 固定版本
 dsh plugin --profile desktop add dsh-lightweight-wallpaper@latest   # 升级
 ```
 
@@ -125,7 +125,7 @@ Git 源取的是源码树而不是构建产物，通常要先 `prepare` 构建�
 ```bash
 dsh plugin --profile desktop add "<本目录绝对路径>"                    # 改代码时
 npm pack                                                             # 离线 / 内网分发：先打包
-dsh plugin --profile desktop add ./dsh-lightweight-wallpaper-0.1.2.tgz
+dsh plugin --profile desktop add ./dsh-lightweight-wallpaper-0.1.3.tgz
 ```
 
 tarball 是预构建的压缩包，同样不需要构建授权；从非官方渠道拿到的文件建议先核对 sha256。
@@ -167,9 +167,9 @@ dsh plugin --profile desktop remove dsh-lightweight-wallpaper
 | 整窗遮罩 | 62% | 全窗基础遮罩，越低壁纸越明显（30–100%） |
 | 压暗 | 18% | 在壁纸上叠一层暗色，保证正文对比度 |
 | 壁纸模糊 | 0 | 0–24px |
-| 毛玻璃 | 开 | 输入框卡片 + 「新会话」按钮 |
-| 毛玻璃透明度 | 55% | 0–100%，两处共用；0% 即完全透明 |
-| 毛玻璃模糊 | 24px | 0–40px，两处共用 |
+| 毛玻璃 | 开 | 输入框卡片 + 「新会话」「导入 DeepSeek 会话」按钮（后者需启用对应插件） |
+| 毛玻璃透明度 | 55% | 0–100%，所有毛玻璃表面共用；0% 即完全透明 |
+| 毛玻璃模糊 | 24px | 0–40px，所有毛玻璃表面共用 |
 | 界面字体 | 系统默认 | 跟随 Harness 内置字体栈；可改为本机任意已安装字体 |
 | 代码字体 | 系统默认 | 代码块、行内代码与文件预览/编辑器 |
 | 终端字体 | 系统默认 | 侧栏终端 |
@@ -265,7 +265,7 @@ npm run check   # 手动跑 host-smoke + client-contract
 ```bash
 node --check src/index.js && node --check src/impl.js && node --check src/client.js
 node tools/host-smoke.mjs        # 42 项：Host 路由 / 缓存 / 历史（20 条 + 回填）/ 缩略图 / 10wallpaper 解析 / 入口 shim 与热重载生命周期
-node tools/client-contract.mjs   # 15 项：包壳、注册契约、预设与翻页、字体与玻璃层、卡片与版式、本地列表
+node tools/client-contract.mjs   # 17 项：包壳、注册契约、预设与翻页、字体与玻璃层、会话操作按钮、全屏右栏、卡片与版式、本地列表
 node tools/probe-sources.mjs     # 上游连通性探针（需要网络）
 node tools/dev.mjs               # 开发循环：保存即语法闸门 + 对应测试
 ```
@@ -274,7 +274,7 @@ node tools/dev.mjs               # 开发循环：保存即语法闸门 + 对应
 
 - **只有一层基础遮罩**：官方容器的 `--dsw-alias-bg-base` 与 `--dsw-specific-sidebar-fill` 全部置透明，壁纸与遮罩都由插件自己画。
 - **全屏右栏靠会话列让位**：官方全屏面板自身没有面，靠 `--dsw-alias-bg-base` 当页面；该 token 已透明，于是面板全屏打开期间用 `:has([data-sidebar-right-panel="fullscreen"][data-sidebar-right-open])` 把 `_centerCol` 置 `visibility:hidden`（不改布局、不卸载，壁纸成为面板背后的页面）。恢复时机：切回停靠（`[data-sidebar-right-panel="push"]`）立即恢复，关闭面板等 `--ds-transition-duration-slow` 的滑出结束再恢复；减少动态效果时不再等待。非 Windows 外壳上面板铺满整帧，`_sidebarCol` 一并处理（抽屉式侧栏由官方叠在面板之上，不动）。
-- **毛玻璃只画两处**：输入框卡片的 `_card::before` 玻璃层与 `[class*="_newSession"]`；卡片自身保持透明并建立 isolation，发送键 hover 重绘不会重新栅格化 backdrop-filter，也不改 `--dsw-specific-input-major` 之类的全局 token。
+- **输入框与会话操作按钮共用毛玻璃**：输入框使用 `_card::before` 玻璃层；新会话只匹配 `button[class*="_newSession"]`，导入按钮只匹配 `[data-slot="sidebar.session.action"] button[class*="_trigger"]`，避免给新版外层 `newSessionRow` 加滤镜而影响固定定位按钮与提示。卡片自身保持透明并建立 isolation，发送键 hover 重绘不会重新栅格化 backdrop-filter，也不改 `--dsw-specific-input-major` 之类的全局 token。
 - **字体写入官方设置**：界面/代码/终端字体通过 `ctx.theme.setFontFamily` 写入 `ui-theme`；旧的 `--dsw-font` / `--dsw-font-mono` 映射到官方字体变量，代码编辑器与代码块共用同一套代码字体，终端字体沿用官方 `--dsh-font-family-terminal`。
 - **主题色取服务快照**：遮罩色 `--lww-floor` 来自 `theme/change` 载荷（其次 `ctx.theme.getTheme()`）；玻璃底色 `--lww-scrim-rgb` 由 CSS 按 `body[data-ds-dark-theme]` 决定，另有 `MutationObserver` 兜底重画。
 - **对比度走官方色阶变量**：浅色时 `label-secondary` 700 → 800、`label-tertiary` 600 → 750、`label-caption` 400 → 700，可随时关闭。

@@ -6,7 +6,7 @@
 
 # dsh-lightweight-wallpaper
 
-**A lightweight wallpaper and font plugin for DeepSeek Harness: five wallpaper sources, full-window coverage, cards and dialogs stay solid, and glass only on two surfaces; interface, code and terminal fonts can be picked from installed system fonts. Zero runtime dependencies, no build step, no bundled images or fonts.**
+**A lightweight wallpaper and font plugin for DeepSeek Harness: five wallpaper sources, full-window coverage, cards and dialogs stay solid, and shared glass for the composer and sidebar actions; interface, code and terminal fonts can be picked from installed system fonts. Zero runtime dependencies, no build step, no bundled images or fonts.**
 
 [![npm version](https://img.shields.io/npm/v/dsh-lightweight-wallpaper?style=flat-square&logo=npm&logoColor=white&color=CB3837)](https://www.npmjs.com/package/dsh-lightweight-wallpaper)
 [![npm downloads](https://img.shields.io/npm/dm/dsh-lightweight-wallpaper?style=flat-square&label=downloads&color=CB3837&logo=npm&logoColor=white)](https://www.npmjs.com/package/dsh-lightweight-wallpaper)
@@ -32,7 +32,7 @@
 
 ## About
 
-The plugin paints a wallpaper on the bottom layer of the Harness window: the canvas and sidebar let it show through, while cards, dialogs and code blocks stay solid so text remains readable. Only the composer card and the sidebar New session button get an extra glass layer. The Fonts group in the settings page also picks the interface, code and terminal fonts from installed system fonts; the code font drives both code blocks and the sidebar file preview/editor, and the terminal font drives the sidebar terminal.
+The plugin paints a wallpaper on the bottom layer of the Harness window: the canvas and sidebar let it show through, while cards, dialogs and code blocks stay solid so text remains readable. Only the composer card and the sidebar New session and Import DeepSeek chats buttons get an extra glass layer. The Fonts group in the settings page also picks the interface, code and terminal fonts from installed system fonts; the code font drives both code blocks and the sidebar file preview/editor, and the terminal font drives the sidebar terminal.
 
 Five sources feed the wallpaper: Bing daily, public-domain paintings from Wikimedia Commons, CC0 works from the Cleveland Museum of Art, 10wallpaper, and local uploads. Every upstream request is made by the host on the plugin's behalf and cached locally — the browser never talks to third-party APIs directly, and the last successful result is replayed when the network or the upstream fails.
 
@@ -51,7 +51,7 @@ Wallpaper settings, images and caches all live under `$DSH_HOME/lightweight-wall
 ### Display and readability
 
 - **Full-window wallpaper + four global controls**: the wallpaper covers the bottom layer; fill mode (cover / contain), window scrim, dim and wallpaper blur are all adjustable, and the sliders preview live.
-- **Glass on two surfaces only**: the composer card and the sidebar New session button share one opacity and one blur; turning the master switch off makes them solid again.
+- **Shared glass for the composer and sidebar actions**: the composer card and the sidebar New session and Import DeepSeek chats buttons share one opacity and one blur; turning glass off restores their default backgrounds.
 - **A fullscreen right sidebar no longer leaks the transcript**: while a document, terminal or file tree covers the window, the page behind the panel goes back to the wallpaper and the conversation column (transcript, composer, status line) steps aside; it returns at once when the panel goes back to its docked presentation, and after the panel's slide when the panel closes.
 - **Readable popovers**: while a wallpaper is active, the composer "+" menu, the model picker and other popovers turn near-solid with a background blur, so small text no longer drowns in the artwork.
 - **Light-mode contrast boost**: secondary greys outside the glass step darker (`label-secondary` 700→800, `label-tertiary` 600→750, `label-caption` 400→700); the dark theme and the wallpaper-off state are untouched.
@@ -105,7 +105,7 @@ dsh plugin --profile desktop add dsh-lightweight-wallpaper
 Pin a version or upgrade:
 
 ```bash
-dsh plugin --profile desktop add dsh-lightweight-wallpaper@0.1.2    # pin
+dsh plugin --profile desktop add dsh-lightweight-wallpaper@0.1.3    # pin
 dsh plugin --profile desktop add dsh-lightweight-wallpaper@latest   # upgrade
 ```
 
@@ -125,7 +125,7 @@ A Git install fetches the source tree rather than a built artifact, which normal
 ```bash
 dsh plugin --profile desktop add "<absolute path to this directory>"   # while editing code
 npm pack                                                              # offline / intranet: pack first
-dsh plugin --profile desktop add ./dsh-lightweight-wallpaper-0.1.2.tgz
+dsh plugin --profile desktop add ./dsh-lightweight-wallpaper-0.1.3.tgz
 ```
 
 A tarball is a prebuilt archive, so it needs no build approval either; check the sha256 first when the file came from an unofficial channel.
@@ -167,9 +167,9 @@ Every control saves automatically; clicking any thumbnail applies it.
 | Window scrim | 62% | Base scrim over the whole window; lower values reveal more wallpaper (30–100%) |
 | Dim | 18% | A dark layer over the wallpaper that protects body-text contrast |
 | Wallpaper blur | 0 | 0–24px |
-| Glass | On | Composer card + New session button |
-| Glass opacity | 55% | 0–100%, shared by both surfaces; 0% is fully transparent |
-| Glass blur | 24px | 0–40px, shared by both surfaces |
+| Glass | On | Composer card + New session and Import DeepSeek chats buttons (the latter requires its optional plugin) |
+| Glass opacity | 55% | 0–100%, shared by all glass surfaces; 0% is fully transparent |
+| Glass blur | 24px | 0–40px, shared by all glass surfaces |
 | Interface font | System default | Follows the built-in Harness stack; any installed family can be chosen |
 | Code font | System default | Code blocks, inline code and the file preview/editor |
 | Terminal font | System default | The sidebar terminal |
@@ -265,7 +265,7 @@ User-visible changes go to the top of [`CHANGELOG.md`](CHANGELOG.md); the versio
 ```bash
 node --check src/index.js && node --check src/impl.js && node --check src/client.js
 node tools/host-smoke.mjs        # 42 checks: host routes / cache / history (20 + backfill) / thumbnails / 10wallpaper parser / entry shim and reload lifecycle
-node tools/client-contract.mjs   # 15 checks: module envelope, registration contract, presets and pager, fonts and glass layer, cards and layout, local list
+node tools/client-contract.mjs   # 17 checks: module envelope, registration contract, presets and pager, fonts and glass layer, session actions, fullscreen right panel, cards and layout, local list
 node tools/probe-sources.mjs     # upstream connectivity probe (network required)
 node tools/dev.mjs               # dev loop: syntax gate on save plus the matching test
 ```
@@ -274,7 +274,7 @@ node tools/dev.mjs               # dev loop: syntax gate on save plus the matchi
 
 - **A single base scrim**: every official container token (`--dsw-alias-bg-base`, `--dsw-specific-sidebar-fill`) is set transparent, and the plugin paints both the wallpaper and the scrim itself.
 - **The fullscreen right panel stands the conversation aside**: the official panel has no surface of its own and uses `--dsw-alias-bg-base` as the page; that token is transparent here, so while the panel is open in the fullscreen presentation `:has([data-sidebar-right-panel="fullscreen"][data-sidebar-right-open])` sets `visibility:hidden` on `_centerCol` (no layout change, no unmount, and the wallpaper becomes the page behind the panel). It comes back at once when the panel returns to the docked presentation (`[data-sidebar-right-panel="push"]`) and after the `--ds-transition-duration-slow` slide when the panel closes; reduced motion skips that wait. Shells where the fullscreen panel spans the whole frame also get `_sidebarCol`, while an open drawer paints above the panel and is left alone.
-- **Glass on exactly two surfaces**: the composer card's `_card::before` glass layer and `[class*="_newSession"]`; the card itself stays transparent and isolated, so the send button's hover repaint does not re-rasterize the backdrop-filter, and global tokens such as `--dsw-specific-input-major` are left alone.
+- **Shared glass for the composer and session actions**: the composer uses `_card::before`; New session matches only `button[class*="_newSession"]`, and the import button matches only `[data-slot="sidebar.session.action"] button[class*="_trigger"]`. Filtering the newer `newSessionRow` wrapper would rebase fixed buttons and tooltips. The card itself stays transparent and isolated, so the send button's hover repaint does not re-rasterize the backdrop-filter, and global tokens such as `--dsw-specific-input-major` are left alone.
 - **Fonts are written through the official settings**: `ctx.theme.setFontFamily` updates `ui-theme` for the interface, code and terminal roles; the legacy `--dsw-font` / `--dsw-font-mono` names map to the official variables so the editor and code blocks share one code font, while the terminal follows `--dsh-font-family-terminal`.
 - **Theme colours come from the service snapshot**: the scrim colour `--lww-floor` comes from the `theme/change` payload (falling back to `ctx.theme.getTheme()`); the glass tint `--lww-scrim-rgb` is decided by CSS from `body[data-ds-dark-theme]`, with a `MutationObserver` as a safety net.
 - **Contrast uses the official scale variables**: in the light theme `label-secondary` 700 → 800, `label-tertiary` 600 → 750 and `label-caption` 400 → 700, and the switch can turn it all off.

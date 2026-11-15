@@ -414,11 +414,11 @@ window.__ModuleLoader__.load({
         'effect.reset': '恢复推荐值',
         'effect.selfcheck': '自检',
         'panel.title': '毛玻璃与透明',
-        'panel.desc': '只给输入框卡片和侧栏「新会话」按钮上毛玻璃；顶部、底部状态栏与两侧都不覆盖。',
+        'panel.desc': '输入框卡片与侧栏「新会话」「导入 DeepSeek 会话」按钮共用毛玻璃效果。',
         'panel.enable': '启用毛玻璃',
         'panel.alpha': '毛玻璃透明度',
         'panel.blur': '毛玻璃模糊',
-        'panel.off': '毛玻璃已关闭：输入框与「新会话」按钮恢复实心。',
+        'panel.off': '毛玻璃已关闭：输入框与会话操作按钮恢复默认背景。',
         'contrast.title': '浅色模式增强文字对比',
         'contrast.hint': '没有毛玻璃的地方（正文、侧栏、底部状态栏）把次要灰字加深一档，浅色主题下更清楚；深色主题不受影响。',
         'auto.title': '每日自动更换',
@@ -539,11 +539,11 @@ window.__ModuleLoader__.load({
         'effect.reset': 'Reset to recommended',
         'effect.selfcheck': 'Self-check',
         'panel.title': 'Glass & transparency',
-        'panel.desc': 'Only the composer card and the sidebar New session button get the glass; the header, the bottom status bar and both sides stay untouched.',
+        'panel.desc': 'The composer card and the sidebar New session and Import DeepSeek chats buttons share the glass effect.',
         'panel.enable': 'Enable glass',
         'panel.alpha': 'Glass opacity',
         'panel.blur': 'Glass blur',
-        'panel.off': 'Glass is off: the composer and the New session button are solid again.',
+        'panel.off': 'Glass is off: the composer and session action buttons use their default backgrounds.',
         'contrast.title': 'Boost text contrast in light mode',
         'contrast.hint': 'Where there is no glass (transcript, sidebar, bottom status bar) the secondary greys step one shade darker so they read better in the light theme; the dark theme is untouched.',
         'auto.title': 'Rotate daily',
@@ -597,6 +597,13 @@ window.__ModuleLoader__.load({
         'cache.never': 'Nothing cached',
       },
     }
+
+    // Match the control itself, never the sidebar's newSessionRow wrapper.
+    // A backdrop-filter on that row traps fixed caption buttons and tooltips.
+    const NEW_SESSION_BUTTON_SELECTOR = 'button[class*="_newSession"]'
+    // The optional import plugin uses a generic trigger class; scope it to
+    // the sidebar action seat so dialog and other toolbar triggers stay solid.
+    const DEEPSEEK_IMPORT_BUTTON_SELECTOR = '[data-slot="sidebar.session.action"] button[class*="_trigger"]'
 
     const CSS = `
       /* Official components still read the legacy --dsw-font / --dsw-font-mono
@@ -699,10 +706,13 @@ window.__ModuleLoader__.load({
         -webkit-backdrop-filter:blur(var(--lww-panel-b,0px)) saturate(1.06);
         backdrop-filter:blur(var(--lww-panel-b,0px)) saturate(1.06);
         transform:translateZ(0)}
-      /* New session button: the same adjustable material (it is NOT hard-wired
-         to transparent; 0% opacity makes it fully see-through). The :not()
-         list skips its own label/content/shortcut/mask children. */
-      html[data-lww-glass] [class*="_newSession"]:not([class*="Label"],[class*="Content"],[class*="Shortcut"],[class*="Mask"]){
+      /* New session button: the same adjustable material (0% is see-through).
+         Target only the button: the newer newSessionRow owns layout and hosts
+         the tooltip. Filtering that row paints a second slab and rebases its
+         fixed descendants, displacing the Windows caption button and tooltip.
+         The optional DeepSeek import trigger beside it shares this material. */
+      html[data-lww-glass] ${NEW_SESSION_BUTTON_SELECTOR},
+      html[data-lww-glass] ${DEEPSEEK_IMPORT_BUTTON_SELECTOR}{
         background-color:rgba(var(--lww-scrim-rgb,255,255,255),var(--lww-panel-a,0))!important;
         -webkit-backdrop-filter:blur(var(--lww-panel-b,0px)) saturate(1.06);
         backdrop-filter:blur(var(--lww-panel-b,0px)) saturate(1.06)}
@@ -1711,10 +1721,9 @@ window.__ModuleLoader__.load({
 
     /** Glass surfaces, kept in one place: a miss shows up as matched:false. */
     const GLASS_PROBES = [
-      [
-        'newSession',
-        '[class*="_newSession"]:not([class*="Label"],[class*="Content"],[class*="Shortcut"],[class*="Mask"])',
-      ],
+      ['newSession', NEW_SESSION_BUTTON_SELECTOR],
+      // Optional: matched:false is expected when the import entry is absent.
+      ['deepseekImport', DEEPSEEK_IMPORT_BUTTON_SELECTOR],
     ]
 
     function probeGlass(selector) {

@@ -286,6 +286,26 @@ assert.ok(
   'the conversation must only stand aside under an active wallpaper and a fullscreen right panel',
 )
 const cssRules = cssText.replace(/\/\*[\s\S]*?\*\//g, '')
+/* DSH 0.2.2 adds newSessionRow around the Tooltip and button. A filter on
+   that wrapper rebases fixed caption controls and non-portal tooltips. Both
+   session actions must share one material applied only to their buttons. */
+const sessionActionRules = [...cssRules.matchAll(/([^{}]*(?:_newSession|sidebar\.session\.action)[^{}]*)\{([^{}]*)\}/g)]
+assert.equal(sessionActionRules.length, 1, 'both session action buttons must share one glass rule')
+for (const [, selectors, declarations] of sessionActionRules) {
+  assert.deepEqual(
+    selectors.split(',').map((selector) => selector.trim()),
+    [
+      'html[data-lww-glass] button[class*="_newSession"]',
+      'html[data-lww-glass] [data-slot="sidebar.session.action"] button[class*="_trigger"]',
+    ],
+    'glass must target only New Session and the sidebar import trigger, never their wrappers or dialog controls',
+  )
+  assert.doesNotMatch(
+    declarations,
+    /(?:^|;)\s*(?:position|inset|top|right|bottom|left|width|height|display|transform|overflow|z-index)\s*:/,
+    'the host must retain session action layout and hover/focus content positioning',
+  )
+}
 const hideRules = [...cssRules.matchAll(/([^{}]*\[class\*="_(?:center|sidebar)Col"\][^{}]*)\{\s*visibility:hidden/g)]
 assert.equal(hideRules.length, 2, 'exactly the conversation and the covered sidebar may stand aside')
 for (const [, selector] of hideRules) {
@@ -624,6 +644,7 @@ console.log('PASS  glass + contrast attributes land on the root with no hidden b
 console.log('PASS  glass tint comes from the stylesheet, not from an inline variable')
 console.log('PASS  a dark snapshot repaints the scrim: payload → getTheme() → attribute')
 console.log('PASS  stylesheet carries composer-card, new-session and contrast rules')
+console.log('PASS  New Session + DeepSeek import share glass without filtering wrappers or changing layout')
 console.log('PASS  fullscreen right sidebar stands the conversation aside (no transcript bleed)')
 console.log('PASS  art presets, pager strings and small-thumbnail proxy requests')
 console.log('PASS  recent-list + cache manager: i18n, endpoints, epoch and history grid')
